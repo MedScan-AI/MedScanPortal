@@ -1,16 +1,11 @@
--- ============================================================================
--- HEALTHCARE PLATFORM DATABASE SCHEMA
+-- MedScanAI PLATFORM DATABASE SCHEMA
 -- Dual-Role System: Radiologist & Patient Portal
--- Technology: PostgreSQL (Recommended for ACID compliance, relationships, and audit trails)
--- ============================================================================
+-- Technology: PostgreSQL
 
--- Enable UUID extension
+-- UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- ============================================================================
 -- USERS & AUTHENTICATION
--- ============================================================================
-
 CREATE TYPE user_role AS ENUM ('patient', 'radiologist', 'admin');
 CREATE TYPE user_status AS ENUM ('active', 'inactive', 'suspended');
 
@@ -36,10 +31,7 @@ CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_role ON users(role);
 CREATE INDEX idx_users_status ON users(status);
 
--- ============================================================================
 -- PATIENT PROFILES
--- ============================================================================
-
 CREATE TYPE gender_type AS ENUM ('Male', 'Female', 'Other', 'Prefer not to say');
 
 CREATE TABLE patient_profiles (
@@ -63,10 +55,7 @@ CREATE TABLE patient_profiles (
 CREATE INDEX idx_patient_profiles_user_id ON patient_profiles(user_id);
 CREATE INDEX idx_patient_profiles_patient_id ON patient_profiles(patient_id);
 
--- ============================================================================
 -- RADIOLOGIST PROFILES
--- ============================================================================
-
 CREATE TABLE radiologist_profiles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -80,10 +69,7 @@ CREATE TABLE radiologist_profiles (
 
 CREATE INDEX idx_radiologist_profiles_user_id ON radiologist_profiles(user_id);
 
--- ============================================================================
 -- SCANS & IMAGING
--- ============================================================================
-
 CREATE TYPE examination_type AS ENUM ('X-ray', 'CT', 'MRI', 'PET', 'Ultrasound');
 CREATE TYPE body_region AS ENUM ('Chest', 'Head', 'Abdomen', 'Pelvis', 'Spine', 'Extremities');
 CREATE TYPE urgency_level AS ENUM ('Routine', 'Urgent', 'Emergent');
@@ -92,9 +78,9 @@ CREATE TYPE scan_status AS ENUM ('pending', 'in_progress', 'ai_analyzed', 'radio
 CREATE TABLE scans (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     patient_id UUID NOT NULL REFERENCES patient_profiles(id) ON DELETE CASCADE,
-    scan_number VARCHAR(50) UNIQUE NOT NULL, -- Auto-generated scan tracking number
+    scan_number VARCHAR(50) UNIQUE NOT NULL,
     
-    -- Clinical Information (from CSV)
+    -- Clinical Information
     examination_type examination_type NOT NULL,
     body_region body_region NOT NULL,
     urgency_level urgency_level DEFAULT 'Routine',
@@ -127,10 +113,7 @@ CREATE INDEX idx_scans_assigned_radiologist ON scans(assigned_radiologist_id);
 CREATE INDEX idx_scans_scan_date ON scans(scan_date DESC);
 CREATE INDEX idx_scans_urgency ON scans(urgency_level);
 
--- ============================================================================
 -- SCAN IMAGES (Multiple images per scan)
--- ============================================================================
-
 CREATE TABLE scan_images (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     scan_id UUID NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
@@ -147,10 +130,7 @@ CREATE TABLE scan_images (
 
 CREATE INDEX idx_scan_images_scan_id ON scan_images(scan_id);
 
--- ============================================================================
 -- AI PREDICTIONS
--- ============================================================================
-
 CREATE TYPE prediction_class AS ENUM ('Normal', 'Tuberculosis', 'Lung_Cancer', 'Other_Abnormality');
 
 CREATE TABLE ai_predictions (
@@ -183,10 +163,7 @@ CREATE INDEX idx_ai_predictions_scan_id ON ai_predictions(scan_id);
 CREATE INDEX idx_ai_predictions_predicted_class ON ai_predictions(predicted_class);
 CREATE INDEX idx_ai_predictions_confidence ON ai_predictions(confidence_score DESC);
 
--- ============================================================================
 -- GRAD-CAM VISUALIZATIONS
--- ============================================================================
-
 CREATE TABLE gradcam_outputs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     ai_prediction_id UUID NOT NULL REFERENCES ai_predictions(id) ON DELETE CASCADE,
@@ -210,10 +187,7 @@ CREATE TABLE gradcam_outputs (
 CREATE INDEX idx_gradcam_outputs_prediction_id ON gradcam_outputs(ai_prediction_id);
 CREATE INDEX idx_gradcam_outputs_scan_image_id ON gradcam_outputs(scan_image_id);
 
--- ============================================================================
 -- RADIOLOGIST FEEDBACK & OVERRIDES
--- ============================================================================
-
 CREATE TYPE feedback_type AS ENUM ('accept', 'partial_override', 'full_override', 'reject');
 CREATE TYPE diagnosis_class AS ENUM ('Normal', 'Tuberculosis', 'Lung_Cancer', 'Other_Abnormality', 'Inconclusive');
 
@@ -249,17 +223,14 @@ CREATE INDEX idx_radiologist_feedback_radiologist_id ON radiologist_feedback(rad
 CREATE INDEX idx_radiologist_feedback_type ON radiologist_feedback(feedback_type);
 CREATE INDEX idx_radiologist_feedback_timestamp ON radiologist_feedback(feedback_timestamp DESC);
 
--- ============================================================================
--- REPORTS (AI-Generated & Radiologist-Approved)
--- ============================================================================
-
+-- REPORTS
 CREATE TYPE report_status AS ENUM ('draft', 'pending_review', 'approved', 'published', 'revised', 'archived');
 CREATE TYPE report_type AS ENUM ('preliminary_ai', 'final_radiologist');
 
 CREATE TABLE reports (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     scan_id UUID NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
-    report_number VARCHAR(50) UNIQUE NOT NULL, -- Auto-generated report tracking number
+    report_number VARCHAR(50) UNIQUE NOT NULL,
     
     -- Report Metadata
     report_type report_type NOT NULL,
@@ -269,8 +240,8 @@ CREATE TABLE reports (
     report_title VARCHAR(500),
     clinical_indication TEXT,
     technique TEXT,
-    findings TEXT NOT NULL, -- Main findings section
-    impression TEXT NOT NULL, -- Summary/impression
+    findings TEXT NOT NULL,
+    impression TEXT NOT NULL,
     recommendations TEXT,
     
     -- AI-Generated Content (if applicable)
@@ -300,10 +271,7 @@ CREATE INDEX idx_reports_status ON reports(report_status);
 CREATE INDEX idx_reports_created_by ON reports(created_by_radiologist_id);
 CREATE INDEX idx_reports_published_at ON reports(published_at DESC);
 
--- ============================================================================
 -- REPORT PUBLICATION STATUS
--- ============================================================================
-
 CREATE TABLE report_publications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     report_id UUID NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
@@ -328,10 +296,7 @@ CREATE TABLE report_publications (
 CREATE INDEX idx_report_publications_report_id ON report_publications(report_id);
 CREATE INDEX idx_report_publications_visible ON report_publications(visible_to_patient);
 
--- ============================================================================
 -- AUDIT TRAIL & SYSTEM LOGS
--- ============================================================================
-
 CREATE TYPE audit_action AS ENUM (
     'user_login', 'user_logout', 
     'scan_created', 'scan_updated', 'scan_deleted',
@@ -363,10 +328,7 @@ CREATE INDEX idx_audit_logs_action ON audit_logs(action);
 CREATE INDEX idx_audit_logs_timestamp ON audit_logs(timestamp DESC);
 CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
 
--- ============================================================================
 -- ML MODEL TRAINING DATA (For Continuous Learning)
--- ============================================================================
-
 CREATE TABLE training_data_queue (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     scan_id UUID NOT NULL REFERENCES scans(id),
@@ -389,10 +351,7 @@ CREATE TABLE training_data_queue (
 CREATE INDEX idx_training_queue_used ON training_data_queue(used_for_training);
 CREATE INDEX idx_training_queue_scan_id ON training_data_queue(scan_id);
 
--- ============================================================================
 -- NOTIFICATIONS & ALERTS
--- ============================================================================
-
 CREATE TYPE notification_type AS ENUM (
     'scan_completed', 'report_published', 'report_updated',
     'urgent_scan_assigned', 'feedback_required', 'system_alert'
@@ -423,10 +382,7 @@ CREATE INDEX idx_notifications_user_id ON notifications(user_id);
 CREATE INDEX idx_notifications_status ON notifications(status);
 CREATE INDEX idx_notifications_created_at ON notifications(created_at DESC);
 
--- ============================================================================
 -- SYSTEM SETTINGS & CONFIGURATION
--- ============================================================================
-
 CREATE TABLE system_settings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     setting_key VARCHAR(100) UNIQUE NOT NULL,
@@ -436,10 +392,7 @@ CREATE TABLE system_settings (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- ============================================================================
 -- VIEWS FOR COMMON QUERIES
--- ============================================================================
-
 -- View: Complete Scan Information with Patient Details
 CREATE VIEW v_scan_details AS
 SELECT 
@@ -520,10 +473,7 @@ WHERE r.report_status = 'published'
 AND rp.visible_to_patient = TRUE
 AND rp.unpublished_at IS NULL;
 
--- ============================================================================
 -- TRIGGERS FOR AUTO-UPDATING TIMESTAMPS
--- ============================================================================
-
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -546,13 +496,3 @@ CREATE TRIGGER update_scans_updated_at BEFORE UPDATE ON scans
 
 CREATE TRIGGER update_reports_updated_at BEFORE UPDATE ON reports
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
--- ============================================================================
--- SAMPLE DATA INSERTION (Optional - for testing)
--- ============================================================================
-
--- Sample Radiologist User
-INSERT INTO users (email, password_hash, role, first_name, last_name, status)
-VALUES 
-    ('radiologist@hospital.com', '$2b$12$placeholder_hash', 'radiologist', 'Dr. Sarah', 'Johnson', 'active'),
-    ('patient@email.com', '$2b$12$placeholder_hash', 'patient', 'John', 'Doe', 'active');
