@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from uuid import UUID
+from datetime import datetime
 from app.core.database import get_db
 from app.core.security import require_role
 from app.models.user import User
@@ -12,6 +13,7 @@ from app.schemas.schemas import (
     FeedbackCreate,
     FeedbackResponse
 )
+from app.models.radiologist_profile import RadiologistProfile
 
 router = APIRouter()
 
@@ -159,17 +161,27 @@ async def get_radiologist_profile(
     db: Session = Depends(get_db)
 ):
     """
-    Get radiologist profile information.
+    Get comprehensive radiologist profile information.
     """
-    # TODO: Implement actual database query to get radiologist profile
+    # Query radiologist_profiles table
+    radiologist_profile = db.query(RadiologistProfile).filter(
+        RadiologistProfile.user_id == current_user.id
+    ).first()
+    
+    if not radiologist_profile:
+        raise HTTPException(status_code=404, detail="Radiologist profile not found")
+    
     return {
+        # User account data
         "user_id": str(current_user.id),
         "first_name": current_user.first_name,
         "last_name": current_user.last_name,
         "email": current_user.email,
-        "phone": current_user.phone
+        "phone": current_user.phone,
+        
+        # Radiologist profile data from radiologist_profiles table
+        "license_number": radiologist_profile.license_number,
+        "specialization": radiologist_profile.specialization,
+        "years_of_experience": radiologist_profile.years_of_experience,
+        "institution": radiologist_profile.institution,
     }
-
-
-# Import datetime at the top
-from datetime import datetime
