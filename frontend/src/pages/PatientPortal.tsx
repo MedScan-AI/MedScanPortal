@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { patientService } from '../services/api';
+import ChatInterface from '../components/ChatInterface';
 
 interface Scan {
   id: string;
@@ -62,6 +63,7 @@ const PatientPortal = () => {
         const response = await patientService.getProfile();
         setProfile(response.data);
       }
+      // Chat tab doesn't need to fetch data
     } catch (err) {
       console.error('Error fetching data:', err);
     } finally {
@@ -70,7 +72,11 @@ const PatientPortal = () => {
   };
 
   useEffect(() => {
-    fetchData();
+    if (activeTab !== 'chat') {
+      fetchData();
+    } else {
+      setLoading(false);
+    }
   }, [activeTab]);
 
   const handleLogout = () => {
@@ -106,7 +112,7 @@ const PatientPortal = () => {
               className={`nav-link ${activeTab === 'profile' ? 'active' : ''}`}
               onClick={() => setActiveTab('profile')}
             >
-              Profile
+              📋 Profile
             </button>
           </li>
           <li className="nav-item">
@@ -114,7 +120,7 @@ const PatientPortal = () => {
               className={`nav-link ${activeTab === 'scans' ? 'active' : ''}`}
               onClick={() => setActiveTab('scans')}
             >
-              My Scans
+              🔬 My Scans
             </button>
           </li>
           <li className="nav-item">
@@ -122,19 +128,26 @@ const PatientPortal = () => {
               className={`nav-link ${activeTab === 'reports' ? 'active' : ''}`}
               onClick={() => setActiveTab('reports')}
             >
-              Reports
+              📄 Reports
+            </button>
+          </li>
+          <li className="nav-item">
+            <button 
+              className={`nav-link ${activeTab === 'chat' ? 'active' : ''}`}
+              onClick={() => setActiveTab('chat')}
+            >
+              💬 Ask Questions
             </button>
           </li>
         </ul>
 
+        {/* Profile Tab */}
         {activeTab === 'profile' && (
           <div className="row">
             <div className="col-lg-8">
               {loading ? (
                 <div className="text-center p-5">
-                  <div className="spinner-border" role="status">
-                    <span className="visually-hidden">Loading...</span>
-                  </div>
+                  <div className="spinner-border" />
                 </div>
               ) : (
                 <>
@@ -160,22 +173,6 @@ const PatientPortal = () => {
                         <div className="col-md-6 mb-3">
                           <label className="form-label text-muted small">Phone</label>
                           <p>{profile?.phone || 'N/A'}</p>
-                        </div>
-                        <div className="col-md-6 mb-3">
-                          <label className="form-label text-muted small">Date of Birth</label>
-                          <p>{profile?.date_of_birth ? new Date(profile.date_of_birth).toLocaleDateString() : 'N/A'}</p>
-                        </div>
-                        <div className="col-md-6 mb-3">
-                          <label className="form-label text-muted small">Age</label>
-                          <p>{profile?.age_years ? `${profile.age_years} years` : 'N/A'}</p>
-                        </div>
-                        <div className="col-md-6 mb-3">
-                          <label className="form-label text-muted small">Gender</label>
-                          <p>{profile?.gender || 'N/A'}</p>
-                        </div>
-                        <div className="col-md-6 mb-3">
-                          <label className="form-label text-muted small">Blood Type</label>
-                          <p>{profile?.blood_type || 'N/A'}</p>
                         </div>
                       </div>
                     </div>
@@ -222,29 +219,6 @@ const PatientPortal = () => {
                           <p>No known allergies</p>
                         )}
                       </div>
-                      <div className="mb-3">
-                        <label className="form-label text-muted small">Medical History</label>
-                        <p className="text-muted">{profile?.medical_history || 'No medical history recorded'}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Emergency Contact */}
-                  <div className="card mb-4">
-                    <div className="card-header bg-danger text-white">
-                      <h5 className="mb-0">Emergency Contact</h5>
-                    </div>
-                    <div className="card-body">
-                      <div className="row">
-                        <div className="col-md-6 mb-3">
-                          <label className="form-label text-muted small">Contact Name</label>
-                          <p>{profile?.emergency_contact_name || 'N/A'}</p>
-                        </div>
-                        <div className="col-md-6 mb-3">
-                          <label className="form-label text-muted small">Contact Phone</label>
-                          <p>{profile?.emergency_contact_phone || 'N/A'}</p>
-                        </div>
-                      </div>
                     </div>
                   </div>
                 </>
@@ -253,14 +227,13 @@ const PatientPortal = () => {
           </div>
         )}
 
+        {/* Scans Tab */}
         {activeTab === 'scans' && (
           <div>
             <h4>My Scan History</h4>
             {loading ? (
               <div className="text-center p-5">
-                <div className="spinner-border" role="status">
-                  <span className="visually-hidden">Loading...</span>
-                </div>
+                <div className="spinner-border" />
               </div>
             ) : scans.length === 0 ? (
               <div className="alert alert-info">No scans available</div>
@@ -280,11 +253,6 @@ const PatientPortal = () => {
                           <strong>Region:</strong> {scan.body_region}<br />
                           <strong>Date:</strong> {new Date(scan.scan_date).toLocaleDateString()}
                         </p>
-                        {scan.status === 'completed' && (
-                          <button className="btn btn-outline-primary btn-sm w-100">
-                            View Details
-                          </button>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -294,14 +262,13 @@ const PatientPortal = () => {
           </div>
         )}
 
+        {/* Reports Tab */}
         {activeTab === 'reports' && (
           <div>
             <h4>Published Reports</h4>
             {loading ? (
               <div className="text-center p-5">
-                <div className="spinner-border" role="status">
-                  <span className="visually-hidden">Loading...</span>
-                </div>
+                <div className="spinner-border" />
               </div>
             ) : reports.length === 0 ? (
               <div className="alert alert-info">No reports available</div>
@@ -309,22 +276,59 @@ const PatientPortal = () => {
               <div className="list-group">
                 {reports.map((report) => (
                   <div key={report.id} className="list-group-item">
-                    <div className="d-flex justify-content-between align-items-start">
-                      <div>
-                        <h5 className="mb-1">{report.report_title}</h5>
-                        <p className="mb-1">{report.impression}</p>
-                        <small className="text-muted">
-                          Published: {new Date(report.published_at).toLocaleDateString()}
-                        </small>
-                      </div>
-                      <button className="btn btn-sm btn-outline-secondary">
-                        View Full Report
-                      </button>
-                    </div>
+                    <h5>{report.report_title}</h5>
+                    <p className="mb-1">{report.impression}</p>
+                    <small className="text-muted">
+                      Published: {new Date(report.published_at).toLocaleDateString()}
+                    </small>
                   </div>
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Chat Tab - NEW */}
+        {activeTab === 'chat' && (
+          <div className="row justify-content-center">
+            <div className="col-lg-8">
+              <ChatInterface />
+              
+              {/* Suggested Questions */}
+              <div className="card mt-3">
+                <div className="card-body">
+                  <h6 className="card-title">💡 Suggested Questions:</h6>
+                  <div className="d-flex flex-wrap gap-2">
+                    {[
+                      "What are the symptoms of tuberculosis?",
+                      "How is lung cancer treated?",
+                      "What is a chest X-ray used for?",
+                      "What should I know about TB medication?",
+                      "What are the side effects of chemotherapy?"
+                    ].map((question, idx) => (
+                      <button
+                        key={idx}
+                        className="btn btn-sm btn-outline-primary"
+                        onClick={() => {
+                          // You can auto-fill the input or send directly
+                          // For now, just show the question as an example
+                        }}
+                      >
+                        {question}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Disclaimer */}
+              <div className="alert alert-warning mt-3">
+                <small>
+                  <strong>⚠️ Medical Disclaimer:</strong> This AI assistant provides general information only. 
+                  Always consult your healthcare provider for medical advice. In case of emergency, call 911.
+                </small>
+              </div>
+            </div>
           </div>
         )}
       </div>

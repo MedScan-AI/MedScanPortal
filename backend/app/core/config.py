@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
 import os
 import json
 
@@ -43,10 +43,14 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     ALERT_EMAIL_RECIPIENTS: List[str] = []
+
+    # RAG Model
+    RAG_ENDPOINT_URL: Optional[str] = None
     
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
         
         @classmethod
         def parse_env_var(cls, field_name: str, raw_val: str):
