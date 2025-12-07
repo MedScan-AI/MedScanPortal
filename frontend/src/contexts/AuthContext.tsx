@@ -1,4 +1,5 @@
-import React, { createContext, useState, useContext, useEffect, type ReactNode } from 'react';
+import { createContext, useState, useContext, useEffect, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 
 interface User {
@@ -13,7 +14,7 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string; role?: string }>;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   loading: boolean;
   isAuthenticated: boolean;
@@ -24,8 +25,8 @@ const AuthContext = createContext<AuthContextType | null>(null);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
-  // Check if user is already logged in on mount
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem('token');
@@ -35,7 +36,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         try {
           setUser(JSON.parse(userData));
         } catch (error) {
-          console.error('Invalid user data in localStorage: ', error);
+          console.error('Invalid user data: ', error);
           localStorage.removeItem('token');
           localStorage.removeItem('user');
         }
@@ -51,17 +52,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const response = await api.post('/auth/login', { email, password });
       const { token, user: userData } = response.data;
       
-      // Store token and user data
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(userData));
       setUser(userData);
       
-      return { success: true, role: userData.role };
+      if (userData.role === 'patient') {
+        navigate('/patient');
+      } else if (userData.role === 'radiologist') {
+        navigate('/radiologist');
+      }
+      
+      return { success: true };
     } catch (error) {
       console.error('Login error:', error);
       return { 
         success: false, 
-        error: 'Login failed. Please try again.' 
+        error: 'Login failed. Please check your credentials.' 
       };
     }
   };
@@ -70,6 +76,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
+    
+    // Dispatch event to clear chat
+    window.dispatchEvent(new CustomEvent('clear-chat'));
+    
+    navigate('/login');
   };
 
   const value: AuthContextType = {
