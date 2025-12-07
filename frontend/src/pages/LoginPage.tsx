@@ -36,8 +36,8 @@ const LoginPage = () => {
         <div className="col-md-5">
           <div className="card shadow">
             <div className="card-header bg-primary text-white text-center py-4">
-              <h2>Healthcare Platform</h2>
-              <p className="mb-0">AI-Assisted Medical Imaging</p>
+              <h2>MedScanAI Platform</h2>
+              <p className="mb-0">AI-Assisted Diagnosis of Medical Scans</p>
             </div>
             <div className="card-body p-4">
               {error && (
