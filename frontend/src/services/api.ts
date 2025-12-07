@@ -9,7 +9,7 @@ const api = axios.create({
   },
 });
 
-// Request interceptor to add auth token
+// Request interceptor
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const token = localStorage.getItem('token');
@@ -18,17 +18,14 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error: AxiosError) => {
-    return Promise.reject(error);
-  }
+  (error: AxiosError) => Promise.reject(error)
 );
 
-// Response interceptor for error handling
+// Response interceptor
 api.interceptors.response.use(
   (response: AxiosResponse) => response,
   (error: AxiosError) => {
     if (error.response?.status === 401) {
-      // Token expired or invalid
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
@@ -39,14 +36,14 @@ api.interceptors.response.use(
 
 export default api;
 
-// API Service Functions
-
+// Auth Service
 export const authService = {
   login: (email: string, password: string) => api.post('/auth/login', { email, password }),
   logout: () => api.post('/auth/logout'),
   getCurrentUser: () => api.get('/auth/me'),
 };
 
+// Patient Service
 export const patientService = {
   getScans: () => api.get('/patient/scans'),
   getScanById: (scanId: string) => api.get(`/patient/scans/${scanId}`),
@@ -55,9 +52,11 @@ export const patientService = {
   getProfile: () => api.get('/patient/profile'),
 };
 
+// Radiologist Service - Extended
 interface FeedbackData {
   feedback_type: string;
   radiologist_diagnosis: string;
+  ai_diagnosis?: string;
   clinical_notes?: string;
   disagreement_reason?: string;
   additional_findings?: string;
@@ -67,23 +66,49 @@ interface FeedbackData {
 
 interface ReportData {
   report_title?: string;
+  clinical_indication?: string;
+  technique?: string;
   findings?: string;
   impression?: string;
   recommendations?: string;
 }
 
 export const radiologistService = {
+  // Scans
   getPendingScans: () => api.get('/radiologist/scans/pending'),
   getCompletedScans: () => api.get('/radiologist/scans/completed'),
   getScanById: (scanId: string) => api.get(`/radiologist/scans/${scanId}`),
+  
+  // Images
+  getScanImages: (scanId: string) => api.get(`/radiologist/scans/${scanId}/images`),
+  uploadImage: (scanId: string, file: File, imageType: string = 'original') => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('image_type', imageType);
+    return api.post(`/radiologist/scans/${scanId}/upload-image`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+  },
+  
+  // AI Analysis
   startAIAnalysis: (scanId: string) => api.post(`/radiologist/scans/${scanId}/analyze`),
+  getAIResults: (scanId: string) => api.get(`/radiologist/scans/${scanId}/ai-results`),
+  
+  // Feedback & Diagnosis
   submitFeedback: (scanId: string, feedbackData: FeedbackData) => 
     api.post(`/radiologist/scans/${scanId}/feedback`, feedbackData),
+  
+  // Reports
+  getDraftReport: (scanId: string) => api.get(`/radiologist/scans/${scanId}/draft-report`),
   updateReport: (reportId: string, reportData: ReportData) => 
     api.put(`/radiologist/reports/${reportId}`, reportData),
   publishReport: (reportId: string) => 
     api.post(`/radiologist/reports/${reportId}/publish`),
   unpublishReport: (reportId: string) => 
     api.post(`/radiologist/reports/${reportId}/unpublish`),
+  
+  // Profile
   getProfile: () => api.get('/radiologist/profile'),
 };
+
+export type { FeedbackData, ReportData };

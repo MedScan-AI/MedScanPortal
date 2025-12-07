@@ -50,7 +50,7 @@ const RadiologistPortal = () => {
         setProfile(response.data);
       }
     } catch (err) {
-      console.error('Error fetching scans:', err);
+      console.error('Error fetching data:', err);
     } finally {
       setLoading(false);
     }
@@ -60,13 +60,9 @@ const RadiologistPortal = () => {
     fetchScans();
   }, [activeView]);
 
-  const handleStartAnalysis = async (scanId: string) => {
-    try {
-      await radiologistService.startAIAnalysis(scanId);
-      alert('AI analysis started');
-    } catch (err) {
-      alert('Failed to start analysis');
-    }
+  const handleScanClick = (scanId: string) => {
+    // Navigate to scan detail page
+    navigate(`/radiologist/scan/${scanId}`);
   };
 
   const handleLogout = () => {
@@ -124,13 +120,10 @@ const RadiologistPortal = () => {
             <div className="col-lg-8">
               {loading ? (
                 <div className="text-center p-5">
-                  <div className="spinner-border" role="status">
-                    <span className="visually-hidden">Loading...</span>
-                  </div>
+                  <div className="spinner-border" />
                 </div>
               ) : (
                 <>
-                  {/* Personal Information */}
                   <div className="card mb-4">
                     <div className="card-header bg-primary text-white">
                       <h5 className="mb-0">Personal Information</h5>
@@ -153,7 +146,6 @@ const RadiologistPortal = () => {
                     </div>
                   </div>
 
-                  {/* Professional Information */}
                   <div className="card mb-4">
                     <div className="card-header bg-success text-white">
                       <h5 className="mb-0">Professional Information</h5>
@@ -179,29 +171,6 @@ const RadiologistPortal = () => {
                       </div>
                     </div>
                   </div>
-
-                  {/* Statistics (Future) */}
-                  <div className="card mb-4">
-                    <div className="card-header bg-secondary text-white">
-                      <h5 className="mb-0">Statistics</h5>
-                    </div>
-                    <div className="card-body">
-                      <div className="row text-center">
-                        <div className="col-md-4 mb-3">
-                          <h3 className="text-primary">{completedScans.length}</h3>
-                          <p className="text-muted small">Completed Cases</p>
-                        </div>
-                        <div className="col-md-4 mb-3">
-                          <h3 className="text-warning">{pendingScans.length}</h3>
-                          <p className="text-muted small">Pending Cases</p>
-                        </div>
-                        <div className="col-md-4 mb-3">
-                          <h3 className="text-success">-</h3>
-                          <p className="text-muted small">This Month</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
                 </>
               )}
             </div>
@@ -220,21 +189,28 @@ const RadiologistPortal = () => {
 
             {loading ? (
               <div className="text-center p-5">
-                <div className="spinner-border" role="status">
-                  <span className="visually-hidden">Loading...</span>
-                </div>
+                <div className="spinner-border" />
               </div>
             ) : scans.length === 0 ? (
               <div className="alert alert-info">
-                {activeView === 'pending' ? 'No pending scans in the queue' : 'No completed cases'}
+                {activeView === 'pending' ? 'No pending scans' : 'No completed cases'}
               </div>
             ) : (
               <div className="row">
                 {scans.map((scan) => (
-                  <div key={scan.id} className="col-md-6 mb-3">
-                    <div className="card">
+                  <div 
+                    key={scan.id} 
+                    className="col-md-6 mb-3"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => handleScanClick(scan.id)}
+                  >
+                    <div className="card h-100 hover-shadow">
                       <div className="card-header d-flex justify-content-between align-items-center">
-                        <span className={`badge ${scan.urgency_level === 'Emergent' ? 'bg-danger' : scan.urgency_level === 'Urgent' ? 'bg-warning' : 'bg-success'}`}>
+                        <span className={`badge ${
+                          scan.urgency_level === 'Emergent' ? 'bg-danger' : 
+                          scan.urgency_level === 'Urgent' ? 'bg-warning' : 
+                          'bg-success'
+                        }`}>
                           {scan.urgency_level}
                         </span>
                         <span className="badge bg-secondary">{scan.status}</span>
@@ -248,19 +224,15 @@ const RadiologistPortal = () => {
                           <strong>Region:</strong> {scan.body_region}<br />
                           <strong>Date:</strong> {new Date(scan.scan_date).toLocaleDateString()}
                         </p>
-                        {activeView === 'pending' && (
-                          <button 
-                            className="btn btn-primary btn-sm w-100"
-                            onClick={() => handleStartAnalysis(scan.id)}
-                          >
-                            Start AI-Assisted Analysis
-                          </button>
-                        )}
-                        {activeView === 'completed' && (
-                          <button className="btn btn-outline-secondary btn-sm w-100">
-                            View Report
-                          </button>
-                        )}
+                        <button 
+                          className="btn btn-primary btn-sm w-100"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleScanClick(scan.id);
+                          }}
+                        >
+                          {activeView === 'pending' ? 'Review Scan' : 'View Details'}
+                        </button>
                       </div>
                     </div>
                   </div>

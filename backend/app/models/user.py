@@ -6,7 +6,7 @@ import uuid
 import enum
 from app.core.database import Base
 
-# Custom UUID type that works with both SQLite and PostgreSQL
+# Custom UUID type that works with PostgreSQL
 class GUID(TypeDecorator):
     """Platform-independent GUID type.
     Uses PostgreSQL's UUID type, otherwise uses CHAR(36), storing as stringified hex values.

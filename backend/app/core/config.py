@@ -13,11 +13,10 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     
-    # Database - Use Supabase PostgreSQL
-    # Format: postgresql://user:password@host:port/database
+    # Database - Supabase PostgreSQL
     DATABASE_URL: str = "postgresql://user:password@localhost:5432/postgres"
     
-    # CORS - Properly parse the JSON array from env
+    # CORS 
     ALLOWED_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:5173",
@@ -32,6 +31,18 @@ class Settings(BaseSettings):
     # AI Model Settings
     MODEL_PATH: str = "./models"
     GRADCAM_OUTPUT_DIR: str = "./gradcam_outputs"
+
+    # GCS Storage (SAME AS DATA PIPELINE)
+    GCP_PROJECT_ID: str = "medscanai"
+    GCS_BUCKET_NAME: str = "medscan-pipeline-medscanai"
+    GOOGLE_APPLICATION_CREDENTIALS: str = "/Users/username/gcp-service-account.json"
+
+    # Email Alerts
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    ALERT_EMAIL_RECIPIENTS: List[str] = []
     
     class Config:
         env_file = ".env"

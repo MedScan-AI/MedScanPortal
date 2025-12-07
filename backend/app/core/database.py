@@ -3,16 +3,14 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 
-# Create engine with PostgreSQL-specific settings
-# Add connect_args to handle SSL and connection issues
+# Creating engine with PostgreSQL-specific settings
 engine = create_engine(
     settings.DATABASE_URL,
-    pool_pre_ping=True,  # Verify connections before using them
-    pool_recycle=3600,   # Recycle connections after 1 hour
-    echo=False,          # Set to True for SQL debugging
+    pool_pre_ping=True,  # Verifying connections before using them
+    pool_recycle=3600,   # Recycling connections after 1 hour
+    echo=False,         
     connect_args={
         "connect_timeout": 10,
-        # Supabase requires SSL
         "sslmode": "require",
     }
 )

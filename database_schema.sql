@@ -496,3 +496,124 @@ CREATE TRIGGER update_scans_updated_at BEFORE UPDATE ON scans
 
 CREATE TRIGGER update_reports_updated_at BEFORE UPDATE ON reports
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+/*
+SELECT * FROM users;
+
+
+-- Inserting Dummy Patient Profile
+INSERT INTO patient_profiles (
+    user_id,
+    patient_id,
+    age_years,
+    weight_kg,
+    height_cm,
+    gender,
+    address,
+    emergency_contact_name,
+    emergency_contact_phone,
+    blood_type,
+    allergies,
+    medical_history
+) VALUES (
+    '8d37f398-83e4-4d51-aec1-1d8ae0134987',  -- John Doe's user_id
+    'PT-001',
+    45,
+    75.5,
+    175,
+    'Male',
+    '123 Main Street, Boston, MA 02120',
+    'Jane Doe',
+    '+1-617-555-0123',
+    'O+',
+    ARRAY['Penicillin', 'Peanuts'],
+    'Hypertension diagnosed in 2020, managed with medication. No surgical history. Regular annual checkups.'
+);
+
+-- Inserting Radiologist Profile for Dr. Sarah Johnson
+INSERT INTO radiologist_profiles (
+    user_id,
+    license_number,
+    specialization,
+    years_of_experience,
+    institution
+) VALUES (
+    '438b31b8-a298-4952-b9fc-6c3ddff60fc5',  -- Dr. Sarah Johnson's user_id
+    'RAD-MA-12345',
+    'Thoracic Radiology',
+    12,
+    'Massachusetts General Hospital'
+);
+
+UPDATE users 
+SET 
+    phone = '+1-617-555-0100',
+    date_of_birth = '1979-05-15'
+WHERE id = '8d37f398-83e4-4d51-aec1-1d8ae0134987';
+
+UPDATE users 
+SET 
+    phone = '+1-617-555-0200',
+    date_of_birth = '1985-08-22'
+WHERE id = '438b31b8-a298-4952-b9fc-6c3ddff60fc5';
+
+-- Verifying if the data was inserted
+SELECT 
+    u.email,
+    u.first_name,
+    u.last_name,
+    u.role,
+    pp.patient_id,
+    pp.age_years,
+    pp.weight_kg,
+    pp.height_cm
+FROM users u
+LEFT JOIN patient_profiles pp ON u.id = pp.user_id
+WHERE u.role = 'patient';
+
+SELECT 
+    u.email,
+    u.first_name,
+    u.last_name,
+    u.role,
+    rp.license_number,
+    rp.specialization,
+    rp.years_of_experience
+FROM users u
+LEFT JOIN radiologist_profiles rp ON u.id = rp.user_id
+WHERE u.role = 'radiologist';
+
+
+-- Allow authenticated users to upload
+CREATE POLICY "Allow authenticated uploads"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (bucket_id = 'medical_scans');
+
+
+-- Allow users to read their own scans
+CREATE POLICY "Allow users to read own scans"
+ON storage.objects FOR SELECT
+TO authenticated
+USING (bucket_id = 'medical_scans');
+
+-- GCS sync tracking
+ALTER TABLE scans 
+ADD COLUMN IF NOT EXISTS synced_to_gcs BOOLEAN DEFAULT FALSE,
+ADD COLUMN IF NOT EXISTS gcs_sync_date TIMESTAMP WITH TIME ZONE,
+ADD COLUMN IF NOT EXISTS gcs_paths JSONB;
+
+ALTER TABLE scan_images
+ADD COLUMN IF NOT EXISTS gcs_path TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_scans_sync_status 
+ON scans(synced_to_gcs, radiologist_review_completed_at);
+
+CREATE INDEX IF NOT EXISTS idx_scans_status 
+ON scans(status);
+
+SELECT column_name, data_type 
+FROM information_schema.columns 
+WHERE table_name = 'scans' 
+AND column_name IN ('synced_to_gcs', 'gcs_sync_date', 'gcs_paths');
+*/
