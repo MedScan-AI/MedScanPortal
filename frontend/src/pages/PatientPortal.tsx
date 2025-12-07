@@ -107,7 +107,7 @@ const PatientPortal = () => {
       <nav className="navbar navbar-expand-lg navbar-light bg-white shadow-sm" style={{ borderBottom: '3px solid #0f4c81' }}>
         <div className="container-fluid px-4">
           <div className="d-flex align-items-center">
-            <span style={{ fontSize: '1.75rem', marginRight: '0.75rem' }}>⚕️</span>
+            <span style={{ fontSize: '1.75rem', marginRight: '0.75rem' }}>⛨</span>
             <div>
               <h5 className="mb-0 fw-bold" style={{ color: '#0f4c81', fontSize: '1.25rem' }}>
                 Patient Portal

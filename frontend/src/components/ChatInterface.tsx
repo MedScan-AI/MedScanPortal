@@ -153,7 +153,7 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
                       📚 Sources:
                     </div>
                     <div className="d-flex flex-column gap-1">
-                      {msg.sources.slice(0, 3).map((source, i) => (
+                      {msg.sources.slice(0, 5).map((source, i) => (
                         <a 
                           key={i}
                           href={source.url} 
@@ -168,6 +168,17 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
                           {i + 1}. {source.title}
                         </a>
                       ))}
+                    </div>
+                    
+                    {/* Medical Disclaimer - After Sources */}
+                    <div className="mt-3 pt-3" style={{ 
+                      borderTop: '1px solid rgba(0,0,0,0.05)',
+                      fontSize: '0.75rem',
+                      color: '#6c757d',
+                      fontStyle: 'italic'
+                    }}>
+                      <strong>Note:</strong> This information is for educational purposes only. 
+                      Always consult your healthcare provider for medical advice.
                     </div>
                   </div>
                 )}

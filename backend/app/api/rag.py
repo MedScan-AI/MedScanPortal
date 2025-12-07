@@ -1,5 +1,6 @@
 """
 RAG Chat Endpoint - Connects to GCP Cloud Run RAG Service
+Cleans response: removes References section and Important notice
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -38,10 +39,9 @@ async def chat_with_rag(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Send user question to RAG model and return answer.
+    Send user question to RAG model and return cleaned answer.
     """
     try:
-        # Format request for RAG endpoint
         rag_request = {
             "instances": [
                 {
@@ -80,28 +80,23 @@ async def chat_with_rag(
             logger.error(f"RAG prediction failed: {error_msg}")
             raise HTTPException(status_code=500, detail=error_msg)
         
-        # Extract answer
+        # Get raw answer
         raw_answer = prediction.get("answer", "")
         
-        # Extract references from the answer
-        # Your RAG includes references in markdown format at the end
-        sources = extract_sources(raw_answer)
+        # Clean the response
+        cleaned_answer, sources = clean_rag_response(raw_answer)
         
-        # Clean up answer (remove the duplicate text if present)
-        clean_answer = clean_rag_response(raw_answer)
-        
-        # Get stats (optional)
+        # Get stats
         stats = prediction.get("stats", {})
         
-        logger.info(f"✓ RAG response: {len(clean_answer)} chars, {len(sources)} sources")
+        logger.info(f"✓ RAG response: {len(cleaned_answer)} chars, {len(sources)} sources")
         
         return ChatResponse(
-            response=clean_answer,
+            response=cleaned_answer,
             sources=sources,
             stats={
                 "confidence": stats.get("avg_retrieval_score"),
-                "num_docs": stats.get("num_retrieved_docs"),
-                "tokens": stats.get("total_tokens")
+                "num_docs": stats.get("num_retrieved_docs")
             } if stats else None
         )
         
@@ -121,65 +116,51 @@ async def chat_with_rag(
         )
 
 
-def extract_sources(answer: str) -> List[Dict[str, str]]:
+def clean_rag_response(raw_answer: str) -> tuple[str, List[Dict[str, str]]]:
     """
-    Extract reference links from RAG answer.
-    Your RAG includes markdown links like: [Text](URL)
+    Clean RAG response:
+    1. Remove "References:" section
+    2. Remove "Important:" disclaimer
+    3. Extract sources from markdown links
+    
+    Returns:
+        (cleaned_answer, sources_list)
     """
+    # Step 1: Remove "References:" section and everything after it
+    if "References:" in raw_answer or "**References:**" in raw_answer:
+        # Split at References and take only the part before it
+        answer = re.split(r'\*\*References:\*\*|References:', raw_answer)[0].strip()
+    else:
+        answer = raw_answer
+    
+    # Step 2: Remove "Important:" disclaimer
+    if "Important:" in answer or "**Important:**" in answer:
+        answer = re.split(r'\*\*Important:\*\*|Important:', answer)[0].strip()
+    
+    # Step 3: Remove trailing "---" markers
+    answer = re.sub(r'\n*---\n*$', '', answer).strip()
+    
+    # Step 4: Extract sources from markdown links in the ORIGINAL answer
+    # Format: [Title](URL)
     sources = []
+    markdown_links = re.findall(r'\[([^\]]+)\]\(([^)]+)\)', raw_answer)
     
-    # Find all markdown links: [text](url)
-    markdown_links = re.findall(r'\[([^\]]+)\]\(([^)]+)\)', answer)
-    
+    seen_urls = set()
     for title, url in markdown_links:
-        if url.startswith('http'):  # Only include actual URLs
+        # Only include actual URLs (start with http)
+        if url.startswith('http') and url not in seen_urls:
+            # Clean title (remove underscores, numbers)
+            clean_title = title.strip().replace('__', '').strip()
+            clean_title = re.sub(r'^\d+\.\s*', '', clean_title)  # Remove leading numbers
+            
             sources.append({
-                "title": title.strip(),
+                "title": clean_title,
                 "url": url.strip()
             })
+            seen_urls.add(url)
     
-    # Deduplicate
-    seen_urls = set()
-    unique_sources = []
-    for source in sources:
-        if source["url"] not in seen_urls:
-            seen_urls.add(source["url"])
-            unique_sources.append(source)
-    
-    return unique_sources[:5]  # Limit to top 5
-
-
-def clean_rag_response(answer: str) -> str:
-    """
-    Clean up RAG response.
-    Your RAG seems to repeat the answer multiple times, keep only the best version.
-    """
-    # Split by "Source:" markers to find repeated sections
-    parts = answer.split("Source: Document")
-    
-    if len(parts) > 1:
-        # Take the last version (usually most complete)
-        # Find the section before **References:**
-        if "**References:**" in answer:
-            main_answer = answer.split("**References:**")[0].strip()
-            references = "**References:**" + answer.split("**References:**")[1]
-            
-            # Get last paragraph before references (most refined version)
-            paragraphs = main_answer.split("\n\n")
-            # Filter out source citations
-            clean_paragraphs = [p for p in paragraphs if not p.startswith("Source:")]
-            
-            if clean_paragraphs:
-                # Take last substantial paragraph (usually the refined version)
-                final_answer = clean_paragraphs[-1].strip()
-                
-                # Add references back
-                return f"{final_answer}\n\n{references}"
-        
-        # Fallback: just take everything
-        return answer.strip()
-    
-    return answer.strip()
+    # Limit to 5 sources
+    return answer, sources[:5]
 
 
 @router.get("/health")

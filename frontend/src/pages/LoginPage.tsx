@@ -36,8 +36,8 @@ const LoginPage = () => {
           <div className="card-header text-white text-center py-4 border-0" style={{
             background: 'linear-gradient(135deg, #0f4c81 0%, #1a5f8a 100%)'
           }}>
-            <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>⚕️</div>
-            <h2 className="mb-1" style={{ fontWeight: 600, fontSize: '1.75rem' }}>MedScan Platform</h2>
+            <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>⛨</div>
+            <h2 className="mb-1" style={{ fontWeight: 600, fontSize: '1.75rem' }}>MedScanAI Platform</h2>
             <p className="mb-0" style={{ fontSize: '0.9rem', opacity: 0.9 }}>
               AI-Assisted Medical Imaging System
             </p>
