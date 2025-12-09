@@ -79,10 +79,9 @@ export const radiologistService = {
   getCompletedScans: () => api.get('/radiologist/scans/completed'),
   getScanById: (scanId: string) => api.get(`/radiologist/scans/${scanId}`),
   
-  // Images - getScanImages uses the scan details endpoint (images are included)
+  // Images - included in scan details
   getScanImages: async (scanId: string) => {
     const response = await api.get(`/radiologist/scans/${scanId}`);
-    // Extract images from scan details response
     return {
       data: response.data.images || []
     };
@@ -99,48 +98,15 @@ export const radiologistService = {
   // AI Analysis
   startAIAnalysis: (scanId: string) => api.post(`/radiologist/scans/${scanId}/analyze`),
   
-  // AI Results - return mock data for now (will be implemented)
-  getAIResults: async (scanId: string) => {
-    // TODO: Implement actual endpoint to get AI results
-    // For now, return mock data
-    return {
-      data: {
-        prediction_id: '123',
-        predicted_class: 'Tuberculosis',
-        confidence_score: 0.87,
-        class_probabilities: {
-          'Normal': 0.13,
-          'Tuberculosis': 0.87
-        },
-        gradcam_url: null,
-        original_image_url: null
-      }
-    };
-  },
+  // AI Results - REAL endpoint
+  getAIResults: (scanId: string) => api.get(`/radiologist/scans/${scanId}/ai-results`),
   
   // Feedback & Diagnosis
   submitFeedback: (scanId: string, feedbackData: FeedbackData) => 
     api.post(`/radiologist/scans/${scanId}/feedback`, feedbackData),
   
-  // Reports - mock for now
-  getDraftReport: async (scanId: string) => {
-    // TODO: Implement actual endpoint
-    return {
-      data: {
-        id: '123',
-        report_number: 'RPT-001',
-        report_title: 'Chest X-Ray Report',
-        clinical_indication: 'Evaluation for TB',
-        technique: 'Chest X-ray PA and lateral views',
-        findings: 'AI-generated findings will appear here...',
-        impression: 'AI-generated impression...',
-        recommendations: 'AI-generated recommendations...',
-        report_status: 'draft',
-        scan_number: 'SCAN-001',
-        patient_name: 'Patient Name'
-      }
-    };
-  },
+  // Reports - REAL endpoints
+  getDraftReport: (scanId: string) => api.get(`/radiologist/scans/${scanId}/draft-report`),
   
   updateReport: (reportId: string, reportData: ReportData) => 
     api.put(`/radiologist/reports/${reportId}`, reportData),

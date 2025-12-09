@@ -1,6 +1,9 @@
 """
-Upload 6 Scans - Fixed Version
-Avoids SQLAlchemy table creation issues
+Upload 6 Scans - EXACT Enum Values from Database
+examination_type: 'X-ray', 'CT' (capitalized)
+body_region: 'Chest' (capitalized)
+urgency_level: 'Routine', 'Urgent', 'Emergent' (capitalized)
+scan_status: 'pending' (lowercase)
 """
 import os
 import sys
@@ -10,21 +13,19 @@ from datetime import datetime, timedelta
 import uuid
 from io import BytesIO
 
-# Set environment BEFORE any app imports
 from dotenv import load_dotenv
 load_dotenv()
 
 if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
-# Now safe to import app modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
+from app.services.gcs_storage import gcs_storage
 
-# Create engine without triggering metadata
 engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine)
 
@@ -43,26 +44,18 @@ SURGERIES = [["None"], ["Appendectomy"]]
 
 
 def find_images(directory: str) -> list:
-    """Find images."""
     dir_path = Path(directory).expanduser()
-    
     if not dir_path.exists():
         logger.error(f"❌ Not found: {directory}")
         return []
-    
     images = []
     for ext in ['*.jpg', '*.jpeg', '*.png', '*.JPG', '*.PNG']:
         images.extend(list(dir_path.glob(ext)))
-    
     return sorted(images)
 
 
 def upload_scans(image_dir: str = './scans/'):
-    """Upload scans using raw SQL to avoid schema conflicts."""
-    
-    # Import after engine created
-    from app.services.gcs_storage import gcs_storage
-    from sqlalchemy import text
+    """Upload scans with EXACT database enum values."""
     
     db = SessionLocal()
     
@@ -73,7 +66,7 @@ def upload_scans(image_dir: str = './scans/'):
             logger.error(f"\n❌ No images in {image_dir}")
             return
         
-        # Get patients using raw SQL
+        # Get patients
         result = db.execute(text("""
             SELECT pp.id, pp.patient_id, u.first_name, u.last_name
             FROM patient_profiles pp
@@ -84,7 +77,7 @@ def upload_scans(image_dir: str = './scans/'):
         patients = result.fetchall()
         
         if len(patients) < 3:
-            logger.error("\n❌ Need 3 patients! Run create_2_new_patients.sql first")
+            logger.error("\n❌ Need 3 patients!")
             return
         
         print(f"\n{'='*70}")
@@ -96,19 +89,16 @@ def upload_scans(image_dir: str = './scans/'):
             print(f"   {p.first_name} {p.last_name} ({p.patient_id})")
         print("")
         
-        print("📊 Filename detection:")
-        print("   • 'lung*' → CT    → Lung Cancer Model")
-        print("   • 'tb*'   → X-ray → TB Model")
+        print("✅ Using EXACT database enum values:")
+        print("   • examination_type: 'X-ray', 'CT' (capitalized)")
+        print("   • body_region: 'Chest' (capitalized)")
+        print("   • urgency_level: 'Routine', 'Urgent', 'Emergent'")
+        print("   • status: 'pending' (lowercase)")
         print("")
         
-        # Status options
-        statuses = ['pending', 'pending', 'pending', 'in_progress', 'ai_analyzed', 'completed']
-        random.shuffle(statuses)
-        
-        urgencies = ['Routine'] * (len(images) - 1) + ['Urgent']
+        urgencies = ['Routine'] * (len(images) - 2) + ['Urgent', 'Emergent']
         random.shuffle(urgencies)
         
-        # Upload
         created = 0
         img_idx = 0
         per_patient = len(images) // len(patients)
@@ -129,40 +119,42 @@ def upload_scans(image_dir: str = './scans/'):
                     scan_id = str(uuid.uuid4())
                     scan_number = f"SCAN-{datetime.now().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8].upper()}"
                     
-                    # Detect from filename
+                    # Filename detection - EXACT database values
                     filename_lower = img.name.lower()
                     if filename_lower.startswith('lung'):
-                        exam_type = 'CT'
+                        exam_type = 'CT'        # EXACT: 'CT' from database
                         model_type = 'LC'
                         lc_count += 1
                     else:
-                        exam_type = 'X-ray'
+                        exam_type = 'X-ray'     # EXACT: 'X-ray' from database
                         model_type = 'TB'
                         tb_count += 1
                     
                     scan_date = datetime.utcnow() - timedelta(days=random.randint(0, 20))
                     
-                    # Insert scan using raw SQL
+                    # Insert with EXACT enum values
                     db.execute(text("""
                         INSERT INTO scans (
-                            id, patient_id, scan_number, examination_type, body_region,
-                            urgency_level, status, presenting_symptoms, current_medications,
-                            previous_surgeries, scan_date, clinical_notes, imaging_facility,
+                            id, patient_id, scan_number, 
+                            examination_type, body_region, urgency_level, status,
+                            presenting_symptoms, current_medications, previous_surgeries,
+                            scan_date, clinical_notes, imaging_facility,
                             created_at, updated_at
                         ) VALUES (
-                            :id, :patient_id, :scan_number, :exam_type, :body_region,
-                            :urgency, :status, :symptoms, :medications,
-                            :surgeries, :scan_date, :notes, :facility,
+                            :id, :patient_id, :scan_number,
+                            :exam_type, :body_region, :urgency, :status,
+                            :symptoms, :medications, :surgeries,
+                            :scan_date, :notes, :facility,
                             NOW(), NOW()
                         )
                     """), {
                         'id': scan_id,
                         'patient_id': str(patient.id),
                         'scan_number': scan_number,
-                        'exam_type': exam_type,
-                        'body_region': 'Chest',
-                        'urgency': urgencies[img_idx],
-                        'status': statuses[img_idx],
+                        'exam_type': exam_type,         # 'X-ray' or 'CT' (EXACT)
+                        'body_region': 'Chest',         # 'Chest' (EXACT)
+                        'urgency': urgencies[img_idx],  # 'Routine', 'Urgent', 'Emergent' (EXACT)
+                        'status': 'pending',            # 'pending' (EXACT)
                         'symptoms': random.choice(SYMPTOMS),
                         'medications': random.choice(MEDICATIONS),
                         'surgeries': random.choice(SURGERIES),
@@ -180,74 +172,55 @@ def upload_scans(image_dir: str = './scans/'):
                             filename="original.jpg"
                         )
                     
-                    # Insert scan_image - match exact database schema
+                    # Insert image
                     db.execute(text("""
                         INSERT INTO scan_images (
-                            scan_id, 
-                            image_path,
-                            image_url,
-                            file_size_bytes,
-                            image_format,
-                            image_order
+                            scan_id, image_path, image_url, 
+                            file_size_bytes, image_format, image_order
                         ) VALUES (
-                            :scan_id, 
-                            :image_path,
-                            :image_url,
-                            :file_size,
-                            :format,
-                            :order
+                            :scan_id, :path, :url, :size, :format, :order
                         )
                     """), {
                         'scan_id': scan_id,
-                        'image_path': gcs_url,  # Required NOT NULL field
-                        'image_url': gcs_url,   # Optional but we fill it
-                        'file_size': img.stat().st_size,
+                        'path': gcs_url,
+                        'url': gcs_url,
+                        'size': img.stat().st_size,
                         'format': 'jpg',
                         'order': 1
                     })
                     
                     db.commit()
-                    
                     created += 1
                     img_idx += 1
                     
-                    icons = {'pending': '⏳', 'in_progress': '🔄', 'ai_analyzed': '🤖', 'completed': '✅'}
-                    
-                    print(
-                        f"   {icons.get(statuses[img_idx-1], '✓')} {scan_number} | "
-                        f"{img.name:20s} → {exam_type:5s} | {model_type}"
-                    )
+                    print(f"   ✅ {scan_number} | {img.name:20s} → {exam_type:6s} | {model_type}")
                     
                 except Exception as e:
-                    logger.error(f"   ❌ Error: {str(e)[:100]}")
+                    logger.error(f"   ❌ {str(e)[:200]}")
                     db.rollback()
                     img_idx += 1
             
             print("")
         
-        # Summary
         print("="*70)
         print("✅ COMPLETE!")
         print("="*70)
         print(f"\nUploaded: {created}/{len(images)}\n")
         
-        print("📊 By Patient:")
-        for p in patients:
-            result = db.execute(text("""
-                SELECT COUNT(*) FROM scans WHERE patient_id = :patient_id
-            """), {'patient_id': str(p.id)})
-            count = result.scalar()
-            print(f"   {p.first_name} {p.last_name}: {count}")
+        if created > 0:
+            print("📊 By Patient:")
+            for p in patients:
+                result = db.execute(text("SELECT COUNT(*) FROM scans WHERE patient_id = :pid"),
+                                   {'pid': str(p.id)})
+                count = result.scalar()
+                print(f"   {p.first_name} {p.last_name}: {count}")
+            
+            print(f"\n📊 By Model Type:")
+            print(f"   TB scans (X-ray):  {tb_count}")
+            print(f"   LC scans (CT):     {lc_count}")
+            
+            print(f"\n✅ All scans in PENDING status ({created} total)")
         
-        print(f"\n📊 By Model Type:")
-        print(f"   TB scans:          {tb_count}")
-        print(f"   Lung Cancer scans: {lc_count}")
-        
-        print("\n💡 Model Selection (automatic):")
-        print("   X-ray + Chest → TB Model")
-        print("   CT + Chest    → Lung Cancer Model")
-        
-        print("\n🎯 Next: Login as radiologist to see scans!")
         print("\n" + "="*70 + "\n")
         
     finally:
@@ -258,19 +231,5 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('directory', nargs='?', default='./scans/')
-    parser.add_argument('--clear', action='store_true')
     args = parser.parse_args()
-    
-    if args.clear:
-        from sqlalchemy import text
-        db = SessionLocal()
-        try:
-            print("\n⚠️  Clearing...")
-            db.execute(text("DELETE FROM scan_images"))
-            db.execute(text("DELETE FROM scans"))
-            db.commit()
-            print("✓ Cleared\n")
-        finally:
-            db.close()
-    
     upload_scans(args.directory)
