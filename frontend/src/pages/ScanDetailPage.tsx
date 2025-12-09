@@ -16,22 +16,21 @@ interface ScanDetail {
   current_medications?: string[];
   previous_surgeries?: string[];
   clinical_notes?: string;
-}
-
-interface ScanImage {
-  id: string;
-  url: string;
-  order: number;
-  size_bytes: number;
-  format: string;
+  images?: Array<{
+    url: string;
+    gcs_path?: string;
+    size: number;
+    format?: string;
+    order?: number;
+  }>;
 }
 
 const ScanDetailPage = () => {
   const { scanId } = useParams<{ scanId: string }>();
   const navigate = useNavigate();
   const [scan, setScan] = useState<ScanDetail | null>(null);
-  const [images, setImages] = useState<ScanImage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [startingAnalysis, setStartingAnalysis] = useState(false);
 
   useEffect(() => {
@@ -42,17 +41,17 @@ const ScanDetailPage = () => {
     if (!scanId) return;
     
     setLoading(true);
+    setError('');
+    
     try {
-      // Fetch scan details
-      const scanResponse = await radiologistService.getScanById(scanId);
-      setScan(scanResponse.data);
+      console.log('Fetching scan:', scanId);
+      const response = await radiologistService.getScanById(scanId);
+      console.log('Scan response:', response.data);
+      setScan(response.data);
       
-      // Fetch images
-      const imagesResponse = await radiologistService.getScanImages(scanId);
-      setImages(imagesResponse.data);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching scan:', err);
-      alert('Failed to load scan details');
+      setError(err.response?.data?.detail || 'Failed to load scan details');
     } finally {
       setLoading(false);
     }
@@ -63,12 +62,20 @@ const ScanDetailPage = () => {
     
     setStartingAnalysis(true);
     try {
+      console.log('Starting AI analysis...');
       await radiologistService.startAIAnalysis(scanId);
-      // Navigate to AI analysis results page
-      navigate(`/radiologist/scan/${scanId}/analysis`);
-    } catch (err) {
+      
+      alert('✓ AI analysis started! This will take 30-60 seconds...\n\nRefresh the page in a minute to see results.');
+      
+      // Refresh to see updated status
+      setTimeout(() => {
+        fetchScanDetails();
+        setStartingAnalysis(false);
+      }, 2000);
+      
+    } catch (err: any) {
       console.error('Error starting analysis:', err);
-      alert('Failed to start AI analysis');
+      alert(err.response?.data?.detail || 'Failed to start AI analysis');
       setStartingAnalysis(false);
     }
   };
@@ -77,9 +84,23 @@ const ScanDetailPage = () => {
     return (
       <div className="container mt-5">
         <div className="text-center p-5">
-          <div className="spinner-border" />
+          <div className="spinner-border text-primary" />
           <p className="mt-3">Loading scan details...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mt-5">
+        <div className="alert alert-danger">
+          <h5>Error</h5>
+          <p>{error}</p>
+        </div>
+        <button className="btn btn-primary" onClick={() => navigate('/radiologist')}>
+          ← Back to Queue
+        </button>
       </div>
     );
   }
@@ -87,145 +108,189 @@ const ScanDetailPage = () => {
   if (!scan) {
     return (
       <div className="container mt-5">
-        <div className="alert alert-danger">Scan not found</div>
+        <div className="alert alert-warning">Scan not found</div>
         <button className="btn btn-primary" onClick={() => navigate('/radiologist')}>
-          Back to Queue
+          ← Back to Queue
         </button>
       </div>
     );
   }
 
+  const images = scan.images || [];
+
   return (
-    <div>
+    <div style={{ minHeight: '100vh', background: '#f5f7fa' }}>
       {/* Header */}
-      <nav className="navbar navbar-dark bg-primary">
-        <div className="container-fluid">
+      <nav className="navbar navbar-dark shadow-sm" style={{
+        background: 'linear-gradient(135deg, #0f4c81 0%, #1a5f8a 100%)',
+        borderBottom: '3px solid #0a3557'
+      }}>
+        <div className="container-fluid px-4">
           <button 
             className="btn btn-outline-light btn-sm"
             onClick={() => navigate('/radiologist')}
+            style={{ borderRadius: '6px', padding: '0.5rem 1.25rem' }}
           >
             ← Back to Queue
           </button>
-          <span className="navbar-brand">Scan Review: {scan.scan_number}</span>
+          <span className="navbar-brand fw-bold">Scan Review: {scan.scan_number}</span>
           <span className={`badge ${
             scan.urgency_level === 'Emergent' ? 'bg-danger' : 
-            scan.urgency_level === 'Urgent' ? 'bg-warning' : 
+            scan.urgency_level === 'Urgent' ? 'bg-warning text-dark' : 
             'bg-success'
-          }`}>
+          }`} style={{ padding: '0.5rem 0.85rem', fontSize: '0.85rem' }}>
             {scan.urgency_level}
           </span>
         </div>
       </nav>
 
-      <div className="container-fluid mt-4">
-        <div className="row">
-          {/* Left Column: Patient Info */}
+      <div className="container-fluid px-4 py-4">
+        <div className="row g-4">
+          {/* Left Column */}
           <div className="col-lg-4">
-            <div className="card mb-3">
-              <div className="card-header bg-info text-white">
-                <h5 className="mb-0">Patient Information</h5>
+            {/* Patient Info */}
+            <div className="card border-0 shadow-sm mb-3" style={{ borderRadius: '12px' }}>
+              <div className="card-header text-white border-0" style={{
+                background: 'linear-gradient(135deg, #0f4c81 0%, #1a5f8a 100%)',
+                borderRadius: '12px 12px 0 0',
+                padding: '1rem 1.25rem'
+              }}>
+                <h5 className="mb-0 fw-bold">👤 Patient Information</h5>
               </div>
-              <div className="card-body">
-                <p><strong>Name:</strong> {scan.patient_name}</p>
-                <p><strong>Patient ID:</strong> {scan.patient_id}</p>
-                <p><strong>Scan Number:</strong> {scan.scan_number}</p>
-                <p><strong>Exam Type:</strong> {scan.examination_type}</p>
-                <p><strong>Body Region:</strong> {scan.body_region}</p>
-                <p><strong>Date:</strong> {new Date(scan.scan_date).toLocaleDateString()}</p>
-                <p><strong>Status:</strong> <span className="badge bg-secondary">{scan.status}</span></p>
+              <div className="card-body p-4">
+                <div className="mb-3">
+                  <label className="text-muted small fw-semibold mb-1">Patient Name</label>
+                  <p className="mb-0 fw-bold" style={{ fontSize: '1.05rem' }}>{scan.patient_name}</p>
+                </div>
+                <div className="mb-3">
+                  <label className="text-muted small fw-semibold mb-1">Patient ID</label>
+                  <p className="mb-0">{scan.patient_id}</p>
+                </div>
+                <div className="mb-3">
+                  <label className="text-muted small fw-semibold mb-1">Scan Number</label>
+                  <p className="mb-0" style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>
+                    {scan.scan_number}
+                  </p>
+                </div>
+                <div className="row mb-3">
+                  <div className="col-6">
+                    <label className="text-muted small fw-semibold mb-1">Exam Type</label>
+                    <p className="mb-0">{scan.examination_type}</p>
+                  </div>
+                  <div className="col-6">
+                    <label className="text-muted small fw-semibold mb-1">Region</label>
+                    <p className="mb-0">{scan.body_region}</p>
+                  </div>
+                </div>
+                <div className="mb-3">
+                  <label className="text-muted small fw-semibold mb-1">Scan Date</label>
+                  <p className="mb-0">
+                    {new Date(scan.scan_date).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    })}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-muted small fw-semibold mb-1">Status</label>
+                  <p className="mb-0">
+                    <span className="badge bg-secondary px-3 py-2">
+                      {scan.status.replace('_', ' ').toUpperCase()}
+                    </span>
+                  </p>
+                </div>
               </div>
             </div>
 
-            {/* Clinical Information */}
-            <div className="card mb-3">
-              <div className="card-header bg-warning">
-                <h6 className="mb-0">Clinical Information</h6>
+            {/* Clinical Info */}
+            <div className="card border-0 shadow-sm" style={{ borderRadius: '12px' }}>
+              <div className="card-header bg-warning border-0" style={{
+                borderRadius: '12px 12px 0 0',
+                padding: '1rem 1.25rem'
+              }}>
+                <h6 className="mb-0 fw-bold">⚕️ Clinical Information</h6>
               </div>
-              <div className="card-body">
+              <div className="card-body p-4">
                 <div className="mb-3">
-                  <strong>Presenting Symptoms:</strong>
+                  <label className="text-muted small fw-semibold mb-2">Symptoms</label>
                   {scan.presenting_symptoms && scan.presenting_symptoms.length > 0 ? (
-                    <ul className="mb-0 mt-2">
-                      {scan.presenting_symptoms.map((symptom, idx) => (
-                        <li key={idx}>{symptom}</li>
+                    <ul className="mb-0 ps-3">
+                      {scan.presenting_symptoms.map((s, i) => (
+                        <li key={i}>{s}</li>
                       ))}
                     </ul>
                   ) : (
-                    <p className="text-muted mb-0">None reported</p>
+                    <p className="text-muted small mb-0">None</p>
                   )}
                 </div>
-
                 <div className="mb-3">
-                  <strong>Current Medications:</strong>
+                  <label className="text-muted small fw-semibold mb-2">Medications</label>
                   {scan.current_medications && scan.current_medications.length > 0 ? (
-                    <ul className="mb-0 mt-2">
-                      {scan.current_medications.map((med, idx) => (
-                        <li key={idx}>{med}</li>
+                    <ul className="mb-0 ps-3">
+                      {scan.current_medications.map((m, i) => (
+                        <li key={i}>{m}</li>
                       ))}
                     </ul>
                   ) : (
-                    <p className="text-muted mb-0">None</p>
+                    <p className="text-muted small mb-0">None</p>
                   )}
                 </div>
-
-                <div className="mb-0">
-                  <strong>Previous Surgeries:</strong>
+                <div>
+                  <label className="text-muted small fw-semibold mb-2">Surgeries</label>
                   {scan.previous_surgeries && scan.previous_surgeries.length > 0 ? (
-                    <ul className="mb-0 mt-2">
-                      {scan.previous_surgeries.map((surgery, idx) => (
-                        <li key={idx}>{surgery}</li>
+                    <ul className="mb-0 ps-3">
+                      {scan.previous_surgeries.map((s, i) => (
+                        <li key={i}>{s}</li>
                       ))}
                     </ul>
                   ) : (
-                    <p className="text-muted mb-0">None</p>
+                    <p className="text-muted small mb-0">None</p>
                   )}
                 </div>
               </div>
             </div>
-
-            {/* Clinical Notes */}
-            {scan.clinical_notes && (
-              <div className="card mb-3">
-                <div className="card-header">
-                  <h6 className="mb-0">Clinical Notes</h6>
-                </div>
-                <div className="card-body">
-                  <p className="mb-0">{scan.clinical_notes}</p>
-                </div>
-              </div>
-            )}
           </div>
 
-          {/* Right Column: Images & Actions */}
+          {/* Right Column */}
           <div className="col-lg-8">
-            <div className="card mb-3">
-              <div className="card-header bg-secondary text-white">
-                <h5 className="mb-0">Scan Images</h5>
+            {/* Images */}
+            <div className="card border-0 shadow-sm mb-3" style={{ borderRadius: '12px' }}>
+              <div className="card-header border-0" style={{
+                background: '#2c3e50',
+                color: 'white',
+                borderRadius: '12px 12px 0 0',
+                padding: '1rem 1.25rem'
+              }}>
+                <h5 className="mb-0 fw-bold">🔬 Scan Images</h5>
               </div>
-              <div className="card-body">
+              <div className="card-body p-4">
                 {images.length === 0 ? (
-                  <div className="alert alert-warning">
-                    No images uploaded yet
-                  </div>
+                  <div className="alert alert-warning">No images uploaded</div>
                 ) : (
-                  <div className="row">
-                    {images.map((image) => (
-                      <div key={image.id} className="col-md-6 mb-3">
+                  <div className="row g-3">
+                    {images.map((image, idx) => (
+                      <div key={idx} className="col-md-6">
                         <div className="card">
                           <img 
                             src={image.url} 
-                            alt={`Scan ${image.order}`}
+                            alt={`Scan ${image.order || idx + 1}`}
                             className="card-img-top"
                             style={{ 
                               height: '300px', 
                               objectFit: 'contain',
                               backgroundColor: '#000'
                             }}
+                            onError={(e) => {
+                              console.error('Image load error:', image.url);
+                              e.currentTarget.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>';
+                            }}
                           />
                           <div className="card-body">
                             <small className="text-muted">
-                              Image {image.order} • {image.format.toUpperCase()} • 
-                              {(image.size_bytes / 1024).toFixed(0)} KB
+                              Image {image.order || idx + 1} • 
+                              {image.format ? image.format.toUpperCase() : 'JPG'} • 
+                              {(image.size / 1024).toFixed(0)} KB
                             </small>
                           </div>
                         </div>
@@ -236,49 +301,81 @@ const ScanDetailPage = () => {
               </div>
             </div>
 
-            {/* Action Button */}
+            {/* Action Cards */}
             {scan.status === 'pending' && images.length > 0 && (
-              <div className="card border-primary">
-                <div className="card-body text-center">
-                  <h5 className="card-title">Ready to Analyze</h5>
-                  <p className="card-text">
-                    Start AI-assisted analysis to get preliminary diagnosis and Grad-CAM visualization
+              <div className="card border-0 shadow-sm" style={{ 
+                borderRadius: '12px',
+                background: 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)',
+                borderLeft: '4px solid #0f4c81'
+              }}>
+                <div className="card-body text-center p-5">
+                  <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🤖</div>
+                  <h5 className="fw-bold mb-3" style={{ color: '#0f4c81' }}>Ready for AI Analysis</h5>
+                  <p className="text-muted mb-4">
+                    Start AI-assisted analysis to get preliminary diagnosis and visualization
                   </p>
                   <button 
-                    className="btn btn-primary btn-lg"
+                    className="btn btn-lg text-white fw-semibold"
                     onClick={handleStartAnalysis}
                     disabled={startingAnalysis}
+                    style={{
+                      background: 'linear-gradient(135deg, #0f4c81 0%, #1a5f8a 100%)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '0.875rem 2.5rem'
+                    }}
                   >
                     {startingAnalysis ? (
                       <>
                         <span className="spinner-border spinner-border-sm me-2" />
-                        Running Analysis...
+                        Starting Analysis...
                       </>
                     ) : (
-                      '🤖 Start AI-Assisted Analysis'
+                      '🚀 Start AI Analysis'
                     )}
                   </button>
                 </div>
               </div>
             )}
 
+            {scan.status === 'in_progress' && (
+              <div className="alert alert-info">
+                <div className="d-flex align-items-center">
+                  <div className="spinner-border spinner-border-sm me-3" />
+                  <div>
+                    <strong>AI Analysis in Progress...</strong>
+                    <p className="mb-0 small">This may take 30-60 seconds. Refresh the page to see results.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {scan.status === 'ai_analyzed' && (
-              <div className="alert alert-success">
-                <strong>✓ AI Analysis Complete</strong>
-                <button 
-                  className="btn btn-success btn-sm ms-3"
-                  onClick={() => navigate(`/radiologist/scan/${scanId}/analysis`)}
-                >
-                  View AI Results →
-                </button>
+              <div className="card border-0 shadow-sm" style={{ 
+                borderRadius: '12px',
+                background: 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)',
+                borderLeft: '4px solid #28a745'
+              }}>
+                <div className="card-body text-center p-4">
+                  <h5 className="fw-bold mb-3" style={{ color: '#28a745' }}>
+                    ✓ AI Analysis Complete
+                  </h5>
+                  <button 
+                    className="btn btn-success btn-lg"
+                    onClick={() => navigate(`/radiologist/scan/${scanId}/analysis`)}
+                    style={{ borderRadius: '8px', padding: '0.75rem 2rem' }}
+                  >
+                    View AI Results & Submit Diagnosis →
+                  </button>
+                </div>
               </div>
             )}
 
             {scan.status === 'completed' && (
-              <div className="alert alert-info">
-                <strong>✓ Scan Completed</strong>
+              <div className="alert alert-primary">
+                <strong>✓ Diagnosis Complete</strong>
                 <button 
-                  className="btn btn-info btn-sm ms-3"
+                  className="btn btn-primary btn-sm ms-3"
                   onClick={() => navigate(`/radiologist/scan/${scanId}/report`)}
                 >
                   View Report →

@@ -10,9 +10,10 @@ class ScanImage(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     scan_id = Column(UUID(as_uuid=True), ForeignKey('scans.id', ondelete='CASCADE'), nullable=False, index=True)
     
-    # Storage paths
-    image_url = Column(Text, nullable=False)  # GCS URL: gs://medscan-data/platform/raw_scans/...
-    gcs_path = Column(Text)                    # MLOps GCS path: gs://medscan-data/vision/raw/tb/...
+    # Storage paths - image_path is NOT NULL in database
+    image_path = Column(Text, nullable=False)  # Primary GCS path (REQUIRED)
+    image_url = Column(Text)                   # Optional secondary URL
+    gcs_path = Column(Text)                    # MLOps path (filled after sync to vision/)
     
     # Image metadata
     image_order = Column(Integer, default=1)

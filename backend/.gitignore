@@ -37,5 +37,6 @@ env/
 
 # Uploads & ML outputs
 uploads/
+scans/
 gradcam_outputs/
 models/*.pth

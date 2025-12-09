@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     # RAG Model
     RAG_ENDPOINT_URL: Optional[str] = None
     
+    # ML Model Endpoints (GCP Cloud Run)
+    TB_MODEL_ENDPOINT: str = None
+    LUNG_CANCER_MODEL_ENDPOINT: str = None
     class Config:
         env_file = ".env"
         case_sensitive = True
