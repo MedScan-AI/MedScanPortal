@@ -32,7 +32,50 @@ def capitalize_for_display(value: str, field_type: str) -> str:
         return value.capitalize()
     return value
 
-# SCAN QUEUE ENDPOINTS
+
+def normalize_diagnosis(ml_prediction: str) -> str:
+    """
+    Normalize ML model prediction to LOWERCASE diagnosis_class enum.
+    
+    Database values: 'normal', 'tuberculosis', 'lung_cancer', 
+                    'other_abnormality', 'inconclusive'
+    """
+    pred_lower = ml_prediction.lower()
+    
+    # Normal cases
+    if pred_lower in ['normal', 'no finding', 'negative']:
+        return 'normal'  # lowercase
+    
+    # TB cases
+    elif pred_lower in ['tuberculosis', 'tb', 'positive']:
+        return 'tuberculosis'  # lowercase
+    
+    # Lung cancer cases  
+    elif pred_lower in ['adenocarcinoma', 'squamous_cell_carcinoma', 'squamous_cell',
+                        'large_cell_carcinoma', 'large_cell', 'lung_cancer', 'malignant',
+                        'benign']:
+        return 'lung_cancer'  # lowercase
+    
+    # Inconclusive
+    elif pred_lower in ['inconclusive', 'uncertain', 'unknown']:
+        return 'inconclusive'  # lowercase
+    
+    # Other abnormality
+    else:
+        return 'other_abnormality'  # lowercase
+
+
+def capitalize_diagnosis_for_display(diagnosis: str) -> str:
+    """Capitalize diagnosis for display in UI."""
+    display_map = {
+        'normal': 'Normal',
+        'tuberculosis': 'Tuberculosis',
+        'lung_cancer': 'Lung Cancer',
+        'other_abnormality': 'Other Abnormality',
+        'inconclusive': 'Inconclusive'
+    }
+    return display_map.get(diagnosis, diagnosis.replace('_', ' ').title())
+
 @router.get("/scans/pending")
 async def get_pending_scans(
     current_user: User = Depends(require_role(["radiologist"])),
@@ -274,20 +317,23 @@ async def get_ai_results(
         if not prediction:
             raise HTTPException(status_code=404, detail="No AI results available yet")
         
-        # Get GradCAM
+        # Get GradCAM using ai_prediction_id (not scan_id)
         gradcam_result = db.execute(text("""
-            SELECT overlay_url
+            SELECT overlay_url, overlay_path, heatmap_url, heatmap_path
             FROM gradcam_outputs
-            WHERE scan_id = :scan_id
+            WHERE ai_prediction_id = :ai_pred_id
             ORDER BY created_at DESC
             LIMIT 1
-        """), {"scan_id": str(scan_id)})
+        """), {"ai_pred_id": str(prediction.id)})
         
         gradcam = gradcam_result.fetchone()
         gradcam_url = None
         
-        if gradcam and gradcam.overlay_url:
-            gradcam_url = gcs_storage.get_signed_url(gradcam.overlay_url, expiration=3600)
+        if gradcam:
+            # Use overlay_path or heatmap_path
+            gcs_path = gradcam.overlay_path or gradcam.overlay_url or gradcam.heatmap_path or gradcam.heatmap_url
+            if gcs_path:
+                gradcam_url = gcs_storage.get_signed_url(gcs_path, expiration=3600)
         
         # Get original image
         image_result = db.execute(text("""
@@ -545,6 +591,9 @@ def run_ai_analysis_workflow(scan_id: str, model_type: str):
         else:
             raise Exception(f"Unknown model: {model_type}")
         
+        # Normalize predicted_class to match DiagnosisClass enum
+        normalized_class = normalize_diagnosis(prediction['predicted_class'])
+        
         # Save prediction
         from psycopg2.extras import Json
         ai_prediction_id = str(uuid_lib.uuid4())
@@ -562,7 +611,7 @@ def run_ai_analysis_workflow(scan_id: str, model_type: str):
             'scan_id': scan_id,
             'model': f'{model_type.upper()}-ResNet50',
             'version': 'v1.0',
-            'class': prediction['predicted_class'],
+            'class': normalized_class,  # Use normalized value
             'confidence': prediction['confidence'],
             'probs': Json(prediction['class_probabilities'])
         })
@@ -581,18 +630,31 @@ def run_ai_analysis_workflow(scan_id: str, model_type: str):
                 filename="gradcam_overlay.jpg"
             )
             
+            # Insert with correct schema: ai_prediction_id, scan_image_id, heatmap_path
             db.execute(text("""
                 INSERT INTO gradcam_outputs (
-                    id, scan_id, heatmap_url, overlay_url, 
-                    target_class, created_at
+                    ai_prediction_id, 
+                    scan_image_id,
+                    heatmap_path,
+                    heatmap_url,
+                    overlay_path,
+                    overlay_url,
+                    target_class
                 ) VALUES (
-                    :id, :scan_id, :url, :url, :class, NOW()
+                    :ai_pred_id, 
+                    :scan_img_id,
+                    :path,
+                    :url,
+                    :path,
+                    :url,
+                    :target_class
                 )
             """), {
-                'id': str(uuid_lib.uuid4()),
-                'scan_id': scan_id,
+                'ai_pred_id': ai_prediction_id,
+                'scan_img_id': str(scan_image.id),
+                'path': gradcam_url,
                 'url': gradcam_url,
-                'class': prediction['predicted_class']
+                'target_class': normalized_class  # Use normalized value
             })
         
         # Update scan
@@ -600,7 +662,7 @@ def run_ai_analysis_workflow(scan_id: str, model_type: str):
         scan.ai_analysis_completed_at = datetime.utcnow()
         db.commit()
         
-        logger.info(f"✓ Complete: {scan.scan_number} → {prediction['predicted_class']}")
+        logger.info(f"✓ Complete: {scan.scan_number} → {normalized_class}")
         
     except Exception as e:
         logger.error(f"Analysis failed: {e}", exc_info=True)
@@ -631,12 +693,15 @@ async def submit_feedback(
         if not radiologist:
             raise HTTPException(status_code=404, detail="Radiologist profile not found")
         
+        # Normalize diagnosis to match DiagnosisClass enum
+        normalized_diagnosis = normalize_diagnosis(feedback.radiologist_diagnosis)
+        
         feedback_record = RadiologistFeedback(
             scan_id=scan_id,
             radiologist_id=radiologist.id,
             feedback_type=feedback.feedback_type,
             ai_diagnosis=getattr(feedback, 'ai_diagnosis', None),
-            radiologist_diagnosis=feedback.radiologist_diagnosis,
+            radiologist_diagnosis=normalized_diagnosis,  # Use normalized value
             clinical_notes=feedback.clinical_notes,
             disagreement_reason=feedback.disagreement_reason,
             additional_findings=feedback.additional_findings,
@@ -650,7 +715,7 @@ async def submit_feedback(
         db.commit()
         db.refresh(feedback_record)
         
-        logger.info(f"✓ Diagnosis: {scan.scan_number} → {feedback.radiologist_diagnosis}")
+        logger.info(f"✓ Diagnosis: {scan.scan_number} → {normalized_diagnosis}")
         
         # Sync to MLOps
         try:

@@ -37,16 +37,17 @@ def sync_scan_to_mlops(
         Result dictionary with 'success', 'message', 'paths'
     """
     try:
-        # Map diagnosis to MLOps folder
+        # Map diagnosis to MLOps folder (handle lowercase from database)
+        diagnosis_lower = diagnosis.lower()
         diagnosis_mapping = {
-            'Tuberculosis': 'tb',
-            'Lung_Cancer': 'lung_cancer',
-            'Normal': 'normal',
-            'Other_Abnormality': 'other',
-            'Inconclusive': 'inconclusive'
+            'tuberculosis': 'tb',
+            'lung_cancer': 'lung_cancer',
+            'normal': 'normal',
+            'other_abnormality': 'other',
+            'inconclusive': 'inconclusive'
         }
         
-        mlops_folder = diagnosis_mapping.get(diagnosis)
+        mlops_folder = diagnosis_mapping.get(diagnosis_lower)
         
         # Only sync TB and Lung Cancer (training data)
         if mlops_folder not in ['tb', 'lung_cancer']:

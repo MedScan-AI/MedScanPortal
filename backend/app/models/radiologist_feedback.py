@@ -12,11 +12,12 @@ class FeedbackType(str, enum.Enum):
     reject = "reject"
 
 class DiagnosisClass(str, enum.Enum):
-    normal = "Normal"
-    tuberculosis = "Tuberculosis"
-    lung_cancer = "Lung_Cancer"
-    other_abnormality = "Other_Abnormality"
-    inconclusive = "Inconclusive"
+    # All lowercase to match database
+    normal = "normal"
+    tuberculosis = "tuberculosis"
+    lung_cancer = "lung_cancer"
+    other_abnormality = "other_abnormality"
+    inconclusive = "inconclusive"
 
 class RadiologistFeedback(Base):
     __tablename__ = "radiologist_feedback"

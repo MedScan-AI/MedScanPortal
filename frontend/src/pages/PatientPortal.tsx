@@ -12,6 +12,21 @@ interface Scan {
   urgency_level: string;
   status: string;
   scan_date: string;
+  presenting_symptoms?: string[];
+  clinical_notes?: string;
+}
+
+interface ScanDetail extends Scan {
+  patient_name: string;
+  patient_id: string;
+  current_medications?: string[];
+  previous_surgeries?: string[];
+  images?: Array<{
+    url: string;
+    size: number;
+    format?: string;
+    order?: number;
+  }>;
 }
 
 interface Report {
@@ -20,6 +35,17 @@ interface Report {
   report_title: string;
   impression: string;
   published_at: string;
+  scan_number?: string;
+  examination_type?: string;
+}
+
+interface ReportDetail extends Report {
+  clinical_indication?: string;
+  technique?: string;
+  findings: string;
+  recommendations?: string;
+  patient_name: string;
+  scan_date: string;
 }
 
 interface PatientProfile {
@@ -49,6 +75,11 @@ const PatientPortal = () => {
   const [reports, setReports] = useState<Report[]>([]);
   const [profile, setProfile] = useState<PatientProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Detail modals
+  const [selectedScan, setSelectedScan] = useState<ScanDetail | null>(null);
+  const [selectedReport, setSelectedReport] = useState<ReportDetail | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -79,6 +110,32 @@ const PatientPortal = () => {
     }
   }, [activeTab]);
 
+  const handleViewScanDetails = async (scanId: string) => {
+    setLoadingDetail(true);
+    try {
+      const response = await patientService.getScanById(scanId);
+      setSelectedScan(response.data);
+    } catch (err) {
+      console.error('Error loading scan:', err);
+      alert('Failed to load scan details');
+    } finally {
+      setLoadingDetail(false);
+    }
+  };
+
+  const handleViewReportDetails = async (reportId: string) => {
+    setLoadingDetail(true);
+    try {
+      const response = await patientService.getReportById(reportId);
+      setSelectedReport(response.data);
+    } catch (err) {
+      console.error('Error loading report:', err);
+      alert('Failed to load report details');
+    } finally {
+      setLoadingDetail(false);
+    }
+  };
+
   const handleLogout = () => {
     logout();
     navigate('/login');
@@ -103,56 +160,53 @@ const PatientPortal = () => {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f7fa' }}>
-      {/* Professional Header */}
-      <nav className="navbar navbar-expand-lg navbar-light bg-white shadow-sm" style={{ borderBottom: '3px solid #0f4c81' }}>
+      {/* Rest of component continues... */}
+      {/* Header */}
+      <nav className="navbar navbar-dark shadow-sm" style={{
+        background: 'linear-gradient(135deg, #0f4c81 0%, #1a5f8a 100%)',
+        borderBottom: '3px solid #0a3557'
+      }}>
         <div className="container-fluid px-4">
+          <span className="navbar-brand fw-bold">
+            ⛨ MedScanAI - Patient Portal
+          </span>
           <div className="d-flex align-items-center">
-            <span style={{ fontSize: '1.75rem', marginRight: '0.75rem' }}>⛨</span>
-            <div>
-              <h5 className="mb-0 fw-bold" style={{ color: '#0f4c81', fontSize: '1.25rem' }}>
-                Patient Portal
-              </h5>
-              <small style={{ color: '#6c757d', fontSize: '0.85rem' }}>
-                Welcome back, {user?.first_name} {user?.last_name}
-              </small>
-            </div>
+            <span className="text-white me-3">
+              Welcome, {user?.first_name}
+            </span>
+            <button 
+              className="btn btn-outline-light btn-sm"
+              onClick={handleLogout}
+              style={{ borderRadius: '6px', padding: '0.5rem 1.25rem' }}
+            >
+              Logout
+            </button>
           </div>
-          <button 
-            className="btn btn-outline-danger btn-sm"
-            onClick={handleLogout}
-            style={{ borderRadius: '6px', padding: '0.5rem 1.25rem' }}
-          >
-            Sign Out
-          </button>
         </div>
       </nav>
 
+      {/* Tabs */}
       <div className="container-fluid px-4 py-4">
-        {/* Professional Tabs */}
-        <ul className="nav nav-pills mb-4" style={{ gap: '0.5rem' }}>
-          {[
-            { key: 'profile', icon: '👤', label: 'Profile' },
-            { key: 'scans', icon: '🔬', label: 'My Scans' },
-            { key: 'reports', icon: '📋', label: 'Reports' },
-            { key: 'chat', icon: '💬', label: 'Ask Questions' }
-          ].map(tab => (
-            <li className="nav-item" key={tab.key}>
+        <ul className="nav nav-tabs mb-4" style={{ borderBottom: '2px solid #dee2e6' }}>
+          {['profile', 'scans', 'reports', 'chat'].map((tab) => (
+            <li className="nav-item" key={tab}>
               <button
-                className={`nav-link ${activeTab === tab.key ? 'active' : ''}`}
-                onClick={() => setActiveTab(tab.key)}
+                className={`nav-link ${activeTab === tab ? 'active' : ''}`}
+                onClick={() => setActiveTab(tab)}
                 style={{
-                  borderRadius: '8px',
-                  padding: '0.65rem 1.5rem',
-                  fontWeight: 500,
                   border: 'none',
-                  background: activeTab === tab.key ? '#0f4c81' : 'white',
-                  color: activeTab === tab.key ? 'white' : '#495057',
-                  transition: 'all 0.2s',
-                  boxShadow: activeTab === tab.key ? '0 4px 12px rgba(15, 76, 129, 0.2)' : 'none'
+                  borderBottom: activeTab === tab ? '3px solid #0f4c81' : '3px solid transparent',
+                  background: activeTab === tab ? '#f8f9fa' : 'transparent',
+                  color: activeTab === tab ? '#0f4c81' : '#6c757d',
+                  fontWeight: activeTab === tab ? 600 : 400,
+                  padding: '0.75rem 1.5rem',
+                  transition: 'all 0.2s'
                 }}
               >
-                <span style={{ marginRight: '0.5rem' }}>{tab.icon}</span>
-                {tab.label}
+                {tab === 'profile' && '👤 My Profile'}
+                {tab === 'scans' && '🔬 My Scans'}
+                {tab === 'reports' && '📋 My Reports'}
+                {tab === 'chat' && '💬 AI Assistant'}
               </button>
             </li>
           ))}
@@ -160,138 +214,117 @@ const PatientPortal = () => {
 
         {/* Profile Tab */}
         {activeTab === 'profile' && (
-          <div className="row">
-            <div className="col-lg-10">
-              {loading ? (
-                <div className="text-center py-5">
-                  <div className="spinner-border text-primary" />
-                </div>
-              ) : (
-                <div className="row g-4">
-                  {/* Personal Information */}
-                  <div className="col-md-6">
-                    <div className="card border-0 shadow-sm h-100" style={{ borderRadius: '12px' }}>
-                      <div className="card-body p-4">
-                        <h5 className="mb-4 fw-bold" style={{ color: '#0f4c81' }}>
-                          Personal Information
-                        </h5>
-                        <div className="mb-3">
-                          <label className="text-muted small fw-semibold mb-1">Patient ID</label>
-                          <p className="mb-0 fw-semibold" style={{ fontSize: '1.05rem' }}>
-                            {profile?.patient_id || 'N/A'}
-                          </p>
-                        </div>
-                        <div className="mb-3">
-                          <label className="text-muted small fw-semibold mb-1">Full Name</label>
-                          <p className="mb-0 fw-semibold" style={{ fontSize: '1.05rem' }}>
-                            {profile?.first_name} {profile?.last_name}
-                          </p>
-                        </div>
-                        <div className="mb-3">
-                          <label className="text-muted small fw-semibold mb-1">Email</label>
-                          <p className="mb-0">{profile?.email}</p>
-                        </div>
-                        <div className="mb-3">
-                          <label className="text-muted small fw-semibold mb-1">Phone</label>
-                          <p className="mb-0">{profile?.phone || 'Not provided'}</p>
-                        </div>
-                        <div className="mb-3">
-                          <label className="text-muted small fw-semibold mb-1">Date of Birth</label>
-                          <p className="mb-0">
-                            {profile?.date_of_birth ? new Date(profile.date_of_birth).toLocaleDateString() : 'Not provided'}
-                          </p>
-                        </div>
-                        <div className="row">
-                          <div className="col-6">
-                            <label className="text-muted small fw-semibold mb-1">Age</label>
-                            <p className="mb-0">{profile?.age_years ? `${profile.age_years} years` : 'N/A'}</p>
-                          </div>
-                          <div className="col-6">
-                            <label className="text-muted small fw-semibold mb-1">Gender</label>
-                            <p className="mb-0">{profile?.gender || 'Not specified'}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+          <div className="row g-4">
+            <div className="col-md-6">
+              <div className="card border-0 shadow-sm h-100" style={{ borderRadius: '12px' }}>
+                <div className="card-body p-4">
+                  <h5 className="mb-4 fw-bold" style={{ color: '#0f4c81' }}>Personal Information</h5>
+                  <div className="mb-3">
+                    <label className="text-muted small fw-semibold mb-1">Patient ID</label>
+                    <p className="mb-0 fw-semibold">{profile?.patient_id || 'N/A'}</p>
                   </div>
-
-                  {/* Medical Information */}
-                  <div className="col-md-6">
-                    <div className="card border-0 shadow-sm h-100" style={{ borderRadius: '12px' }}>
-                      <div className="card-body p-4">
-                        <h5 className="mb-4 fw-bold" style={{ color: '#0f4c81' }}>
-                          Medical Information
-                        </h5>
-                        <div className="row mb-3">
-                          <div className="col-4">
-                            <label className="text-muted small fw-semibold mb-1">Height</label>
-                            <p className="mb-0 fw-semibold">{profile?.height_cm ? `${profile.height_cm} cm` : 'N/A'}</p>
-                          </div>
-                          <div className="col-4">
-                            <label className="text-muted small fw-semibold mb-1">Weight</label>
-                            <p className="mb-0 fw-semibold">{profile?.weight_kg ? `${profile.weight_kg} kg` : 'N/A'}</p>
-                          </div>
-                          <div className="col-4">
-                            <label className="text-muted small fw-semibold mb-1">BMI</label>
-                            <p className="mb-0 fw-semibold">{calculateBMI(profile?.weight_kg, profile?.height_cm)}</p>
-                          </div>
-                        </div>
-                        <div className="mb-3">
-                          <label className="text-muted small fw-semibold mb-1">Blood Type</label>
-                          <p className="mb-0">{profile?.blood_type || 'Not recorded'}</p>
-                        </div>
-                        <div className="mb-3">
-                          <label className="text-muted small fw-semibold mb-2">Allergies</label>
-                          {profile?.allergies && profile.allergies.length > 0 ? (
-                            <div className="d-flex flex-wrap gap-2">
-                              {profile.allergies.map((allergy, index) => (
-                                <span key={index} className="badge bg-danger" style={{ 
-                                  padding: '0.5rem 0.75rem',
-                                  fontSize: '0.85rem',
-                                  fontWeight: 500
-                                }}>
-                                  {allergy}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="mb-0 text-muted">No known allergies</p>
-                          )}
-                        </div>
-                        <div className="mb-3">
-                          <label className="text-muted small fw-semibold mb-1">Medical History</label>
-                          <p className="mb-0" style={{ fontSize: '0.95rem', lineHeight: 1.6 }}>
-                            {profile?.medical_history || 'No medical history recorded'}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+                  <div className="mb-3">
+                    <label className="text-muted small fw-semibold mb-1">Full Name</label>
+                    <p className="mb-0">{profile?.first_name} {profile?.last_name}</p>
                   </div>
-
-                  {/* Emergency Contact */}
-                  <div className="col-md-6">
-                    <div className="card border-0 shadow-sm" style={{ 
-                      borderRadius: '12px',
-                      background: 'linear-gradient(135deg, #fff5f5 0%, #ffe5e5 100%)',
-                      borderLeft: '4px solid #dc3545'
-                    }}>
-                      <div className="card-body p-4">
-                        <h5 className="mb-3 fw-bold" style={{ color: '#dc3545' }}>
-                          🚨 Emergency Contact
-                        </h5>
-                        <div className="mb-2">
-                          <label className="text-muted small fw-semibold mb-1">Contact Name</label>
-                          <p className="mb-0 fw-semibold">{profile?.emergency_contact_name || 'Not provided'}</p>
-                        </div>
-                        <div>
-                          <label className="text-muted small fw-semibold mb-1">Contact Phone</label>
-                          <p className="mb-0 fw-semibold">{profile?.emergency_contact_phone || 'Not provided'}</p>
-                        </div>
-                      </div>
+                  <div className="mb-3">
+                    <label className="text-muted small fw-semibold mb-1">Email</label>
+                    <p className="mb-0">{profile?.email}</p>
+                  </div>
+                  <div className="mb-3">
+                    <label className="text-muted small fw-semibold mb-1">Phone</label>
+                    <p className="mb-0">{profile?.phone || 'Not provided'}</p>
+                  </div>
+                  <div className="mb-3">
+                    <label className="text-muted small fw-semibold mb-1">Date of Birth</label>
+                    <p className="mb-0">
+                      {profile?.date_of_birth ? new Date(profile.date_of_birth).toLocaleDateString() : 'Not provided'}
+                    </p>
+                  </div>
+                  <div className="row">
+                    <div className="col-6">
+                      <label className="text-muted small fw-semibold mb-1">Age</label>
+                      <p className="mb-0">{profile?.age_years ? `${profile.age_years} years` : 'N/A'}</p>
+                    </div>
+                    <div className="col-6">
+                      <label className="text-muted small fw-semibold mb-1">Gender</label>
+                      <p className="mb-0">{profile?.gender || 'Not specified'}</p>
                     </div>
                   </div>
                 </div>
-              )}
+              </div>
+            </div>
+
+            <div className="col-md-6">
+              <div className="card border-0 shadow-sm h-100" style={{ borderRadius: '12px' }}>
+                <div className="card-body p-4">
+                  <h5 className="mb-4 fw-bold" style={{ color: '#0f4c81' }}>Medical Information</h5>
+                  <div className="row mb-3">
+                    <div className="col-4">
+                      <label className="text-muted small fw-semibold mb-1">Height</label>
+                      <p className="mb-0 fw-semibold">{profile?.height_cm ? `${profile.height_cm} cm` : 'N/A'}</p>
+                    </div>
+                    <div className="col-4">
+                      <label className="text-muted small fw-semibold mb-1">Weight</label>
+                      <p className="mb-0 fw-semibold">{profile?.weight_kg ? `${profile.weight_kg} kg` : 'N/A'}</p>
+                    </div>
+                    <div className="col-4">
+                      <label className="text-muted small fw-semibold mb-1">BMI</label>
+                      <p className="mb-0 fw-semibold">{calculateBMI(profile?.weight_kg, profile?.height_cm)}</p>
+                    </div>
+                  </div>
+                  <div className="mb-3">
+                    <label className="text-muted small fw-semibold mb-1">Blood Type</label>
+                    <p className="mb-0">{profile?.blood_type || 'Not recorded'}</p>
+                  </div>
+                  <div className="mb-3">
+                    <label className="text-muted small fw-semibold mb-2">Allergies</label>
+                    {profile?.allergies && profile.allergies.length > 0 ? (
+                      <div className="d-flex flex-wrap gap-2">
+                        {profile.allergies.map((allergy, index) => (
+                          <span key={index} className="badge bg-danger" style={{ 
+                            padding: '0.5rem 0.75rem',
+                            fontSize: '0.85rem',
+                            fontWeight: 500
+                          }}>
+                            {allergy}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mb-0 text-muted">No known allergies</p>
+                    )}
+                  </div>
+                  <div className="mb-3">
+                    <label className="text-muted small fw-semibold mb-1">Medical History</label>
+                    <p className="mb-0" style={{ fontSize: '0.95rem', lineHeight: 1.6 }}>
+                      {profile?.medical_history || 'No medical history recorded'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="col-md-6">
+              <div className="card border-0 shadow-sm" style={{ 
+                borderRadius: '12px',
+                background: 'linear-gradient(135deg, #fff5f5 0%, #ffe5e5 100%)',
+                borderLeft: '4px solid #dc3545'
+              }}>
+                <div className="card-body p-4">
+                  <h5 className="mb-3 fw-bold" style={{ color: '#dc3545' }}>
+                    🚨 Emergency Contact
+                  </h5>
+                  <div className="mb-2">
+                    <label className="text-muted small fw-semibold mb-1">Contact Name</label>
+                    <p className="mb-0 fw-semibold">{profile?.emergency_contact_name || 'Not provided'}</p>
+                  </div>
+                  <div>
+                    <label className="text-muted small fw-semibold mb-1">Contact Phone</label>
+                    <p className="mb-0 fw-semibold">{profile?.emergency_contact_phone || 'Not provided'}</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -317,19 +350,23 @@ const PatientPortal = () => {
               <div className="row g-4">
                 {scans.map((scan) => (
                   <div key={scan.id} className="col-md-6 col-lg-4">
-                    <div className="card border-0 shadow-sm h-100" style={{ 
-                      borderRadius: '12px',
-                      transition: 'transform 0.2s, box-shadow 0.2s',
-                      cursor: 'pointer'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = 'translateY(-4px)';
-                      e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.12)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
-                    }}>
+                    <div 
+                      className="card border-0 shadow-sm h-100" 
+                      style={{ 
+                        borderRadius: '12px',
+                        transition: 'transform 0.2s, box-shadow 0.2s',
+                        cursor: 'pointer'
+                      }}
+                      onClick={() => handleViewScanDetails(scan.id)}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-4px)';
+                        e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.12)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                      }}
+                    >
                       <div className="card-body p-4">
                         <div className="d-flex justify-content-between align-items-start mb-3">
                           <h5 className="card-title mb-0 fw-bold" style={{ color: '#2c3e50' }}>
@@ -344,7 +381,7 @@ const PatientPortal = () => {
                             fontWeight: 600,
                             textTransform: 'uppercase'
                           }}>
-                            {scan.status}
+                            {scan.status.replace('_', ' ')}
                           </div>
                         </div>
                         <div className="mb-2">
@@ -363,16 +400,6 @@ const PatientPortal = () => {
                             day: 'numeric'
                           })}</p>
                         </div>
-                        {scan.status === 'completed' && (
-                          <button className="btn btn-sm w-100 mt-3" style={{
-                            background: '#0f4c81',
-                            color: 'white',
-                            borderRadius: '6px',
-                            fontWeight: 500
-                          }}>
-                            View Details
-                          </button>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -397,19 +424,39 @@ const PatientPortal = () => {
                 <div className="card-body text-center py-5">
                   <div style={{ fontSize: '3rem', opacity: 0.3 }}>📋</div>
                   <p className="text-muted mb-0">No reports available</p>
+                  <small className="text-muted">Reports will appear here once published by your radiologist</small>
                 </div>
               </div>
             ) : (
               <div className="row g-4">
                 {reports.map((report) => (
                   <div key={report.id} className="col-12">
-                    <div className="card border-0 shadow-sm" style={{ borderRadius: '12px' }}>
+                    <div 
+                      className="card border-0 shadow-sm" 
+                      style={{ 
+                        borderRadius: '12px',
+                        cursor: 'pointer',
+                        transition: 'transform 0.2s, box-shadow 0.2s'
+                      }}
+                      onClick={() => handleViewReportDetails(report.id)}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                        e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.12)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                      }}
+                    >
                       <div className="card-body p-4">
                         <div className="d-flex justify-content-between align-items-start">
                           <div className="flex-grow-1">
                             <h5 className="fw-bold mb-2" style={{ color: '#2c3e50' }}>
                               {report.report_title}
                             </h5>
+                            <p className="mb-2 text-muted" style={{ fontSize: '0.95rem' }}>
+                              {report.scan_number} • {report.examination_type}
+                            </p>
                             <p className="mb-2" style={{ lineHeight: 1.6 }}>{report.impression}</p>
                             <small className="text-muted">
                               📅 Published on {new Date(report.published_at).toLocaleDateString('en-US', {
@@ -419,12 +466,21 @@ const PatientPortal = () => {
                               })}
                             </small>
                           </div>
-                          <button className="btn btn-outline-primary btn-sm ms-3" style={{
-                            borderRadius: '6px',
-                            padding: '0.5rem 1.25rem'
-                          }}>
-                            View Full Report
-                          </button>
+                          <div className="ms-3">
+                            <button 
+                              className="btn btn-primary btn-sm"
+                              style={{
+                                borderRadius: '6px',
+                                padding: '0.5rem 1.25rem'
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleViewReportDetails(report.id);
+                              }}
+                            >
+                              View Report →
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -441,7 +497,6 @@ const PatientPortal = () => {
             <div className="col-lg-10">
               <ChatInterface />
               
-              {/* Medical Disclaimer */}
               <div className="alert alert-warning border-0 shadow-sm mt-4" style={{ 
                 borderRadius: '12px',
                 borderLeft: '4px solid #ffc107'
@@ -463,6 +518,253 @@ const PatientPortal = () => {
           </div>
         )}
       </div>
+
+      {/* Scan Detail Modal */}
+      {selectedScan && (
+        <div 
+          className="modal show d-block" 
+          style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={() => setSelectedScan(null)}
+        >
+          <div 
+            className="modal-dialog modal-xl modal-dialog-scrollable"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-content" style={{ borderRadius: '12px' }}>
+              <div className="modal-header" style={{ 
+                background: 'linear-gradient(135deg, #0f4c81 0%, #1a5f8a 100%)',
+                color: 'white',
+                borderRadius: '12px 12px 0 0'
+              }}>
+                <h5 className="modal-title fw-bold">Scan Details: {selectedScan.scan_number}</h5>
+                <button 
+                  type="button" 
+                  className="btn-close btn-close-white" 
+                  onClick={() => setSelectedScan(null)}
+                />
+              </div>
+              <div className="modal-body p-4">
+                <div className="row g-4">
+                  <div className="col-md-6">
+                    <h6 className="fw-bold mb-3">Scan Information</h6>
+                    <div className="mb-2">
+                      <small className="text-muted fw-semibold">Examination Type</small>
+                      <p className="mb-0">{selectedScan.examination_type}</p>
+                    </div>
+                    <div className="mb-2">
+                      <small className="text-muted fw-semibold">Body Region</small>
+                      <p className="mb-0">{selectedScan.body_region}</p>
+                    </div>
+                    <div className="mb-2">
+                      <small className="text-muted fw-semibold">Urgency</small>
+                      <p className="mb-0">{selectedScan.urgency_level}</p>
+                    </div>
+                    <div className="mb-2">
+                      <small className="text-muted fw-semibold">Status</small>
+                      <p className="mb-0">
+                        <span className="badge" style={{ background: getStatusColor(selectedScan.status) }}>
+                          {selectedScan.status.replace('_', ' ').toUpperCase()}
+                        </span>
+                      </p>
+                    </div>
+                    <div className="mb-2">
+                      <small className="text-muted fw-semibold">Scan Date</small>
+                      <p className="mb-0">{new Date(selectedScan.scan_date).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}</p>
+                    </div>
+                  </div>
+
+                  <div className="col-md-6">
+                    <h6 className="fw-bold mb-3">Clinical Information</h6>
+                    {selectedScan.presenting_symptoms && selectedScan.presenting_symptoms.length > 0 && (
+                      <div className="mb-3">
+                        <small className="text-muted fw-semibold">Symptoms</small>
+                        <ul className="mb-0 ps-3">
+                          {selectedScan.presenting_symptoms.map((s, i) => (
+                            <li key={i}>{s}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {selectedScan.current_medications && selectedScan.current_medications.length > 0 && (
+                      <div className="mb-3">
+                        <small className="text-muted fw-semibold">Medications</small>
+                        <ul className="mb-0 ps-3">
+                          {selectedScan.current_medications.map((m, i) => (
+                            <li key={i}>{m}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {selectedScan.clinical_notes && (
+                      <div>
+                        <small className="text-muted fw-semibold">Clinical Notes</small>
+                        <p className="mb-0">{selectedScan.clinical_notes}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedScan.images && selectedScan.images.length > 0 && (
+                    <div className="col-12">
+                      <h6 className="fw-bold mb-3">Scan Images</h6>
+                      <div className="row g-3">
+                        {selectedScan.images.map((image, idx) => (
+                          <div key={idx} className="col-md-6">
+                            <img 
+                              src={image.url} 
+                              alt={`Scan ${image.order || idx + 1}`}
+                              className="img-fluid rounded"
+                              style={{ 
+                                maxHeight: '300px', 
+                                width: '100%',
+                                objectFit: 'contain',
+                                backgroundColor: '#000'
+                              }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => setSelectedScan(null)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Detail Modal */}
+      {selectedReport && (
+        <div 
+          className="modal show d-block" 
+          style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={() => setSelectedReport(null)}
+        >
+          <div 
+            className="modal-dialog modal-xl modal-dialog-scrollable"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-content" style={{ borderRadius: '12px' }}>
+              <div className="modal-header" style={{ 
+                background: 'linear-gradient(135deg, #28a745 0%, #20c997 100%)',
+                color: 'white',
+                borderRadius: '12px 12px 0 0'
+              }}>
+                <h5 className="modal-title fw-bold">📋 {selectedReport.report_title}</h5>
+                <button 
+                  type="button" 
+                  className="btn-close btn-close-white" 
+                  onClick={() => setSelectedReport(null)}
+                />
+              </div>
+              <div className="modal-body p-4" style={{ background: '#f8f9fa' }}>
+                <div className="card border-0 mb-3">
+                  <div className="card-body">
+                    <div className="row mb-3">
+                      <div className="col-md-6">
+                        <small className="text-muted fw-semibold">Patient</small>
+                        <p className="mb-0">{selectedReport.patient_name}</p>
+                      </div>
+                      <div className="col-md-6">
+                        <small className="text-muted fw-semibold">Report Number</small>
+                        <p className="mb-0">{selectedReport.report_number}</p>
+                      </div>
+                    </div>
+                    <div className="row">
+                      <div className="col-md-6">
+                        <small className="text-muted fw-semibold">Scan Number</small>
+                        <p className="mb-0">{selectedReport.scan_number}</p>
+                      </div>
+                      <div className="col-md-6">
+                        <small className="text-muted fw-semibold">Published</small>
+                        <p className="mb-0">{new Date(selectedReport.published_at).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric'
+                        })}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {selectedReport.clinical_indication && (
+                  <div className="mb-4">
+                    <h6 className="fw-bold mb-2">CLINICAL INDICATION:</h6>
+                    <p>{selectedReport.clinical_indication}</p>
+                  </div>
+                )}
+
+                {selectedReport.technique && (
+                  <div className="mb-4">
+                    <h6 className="fw-bold mb-2">TECHNIQUE:</h6>
+                    <p>{selectedReport.technique}</p>
+                  </div>
+                )}
+
+                <div className="mb-4">
+                  <h6 className="fw-bold mb-2">FINDINGS:</h6>
+                  <p style={{ whiteSpace: 'pre-wrap' }}>{selectedReport.findings}</p>
+                </div>
+
+                <div className="mb-4">
+                  <h6 className="fw-bold mb-2">IMPRESSION:</h6>
+                  <p style={{ whiteSpace: 'pre-wrap' }}>{selectedReport.impression}</p>
+                </div>
+
+                {selectedReport.recommendations && (
+                  <div className="mb-4">
+                    <h6 className="fw-bold mb-2">RECOMMENDATIONS:</h6>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>{selectedReport.recommendations}</p>
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => setSelectedReport(null)}
+                >
+                  Close
+                </button>
+                <button 
+                  className="btn btn-primary"
+                  onClick={() => {
+                    window.print();
+                  }}
+                >
+                  🖨️ Print Report
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Loading Detail Modal */}
+      {loadingDetail && (
+        <div className="modal show d-block" style={{ background: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content border-0 shadow-lg" style={{ borderRadius: '12px' }}>
+              <div className="modal-body text-center py-5">
+                <div className="spinner-border text-primary mb-3" />
+                <p className="mb-0">Loading details...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

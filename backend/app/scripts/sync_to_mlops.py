@@ -68,17 +68,17 @@ class MLOpsSyncService:
         if not feedback:
             return 'unknown'
         
-        # Map to MLOps folder names
+        # Map to MLOps folder names (handle lowercase from database)
         diagnosis_mapping = {
-            'Tuberculosis': 'tb',
-            'Lung_Cancer': 'lung_cancer',
-            'Normal': 'normal',
-            'Other_Abnormality': 'other',
-            'Inconclusive': 'inconclusive'
+            'tuberculosis': 'tb',
+            'lung_cancer': 'lung_cancer',
+            'normal': 'normal',
+            'other_abnormality': 'other',
+            'inconclusive': 'inconclusive'
         }
         
         return diagnosis_mapping.get(
-            str(feedback.radiologist_diagnosis),
+            str(feedback.radiologist_diagnosis).lower(),
             'unknown'
         )
     
