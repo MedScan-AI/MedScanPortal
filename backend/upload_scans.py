@@ -1,9 +1,5 @@
 """
-Upload 6 Scans - EXACT Enum Values from Database
-examination_type: 'X-ray', 'CT' (capitalized)
-body_region: 'Chest' (capitalized)
-urgency_level: 'Routine', 'Urgent', 'Emergent' (capitalized)
-scan_status: 'pending' (lowercase)
+Upload 6 Scans
 """
 import os
 import sys
@@ -46,7 +42,7 @@ SURGERIES = [["None"], ["Appendectomy"]]
 def find_images(directory: str) -> list:
     dir_path = Path(directory).expanduser()
     if not dir_path.exists():
-        logger.error(f"❌ Not found: {directory}")
+        logger.error(f"Not found: {directory}")
         return []
     images = []
     for ext in ['*.jpg', '*.jpeg', '*.png', '*.JPG', '*.PNG']:
@@ -55,7 +51,7 @@ def find_images(directory: str) -> list:
 
 
 def upload_scans(image_dir: str = './scans/'):
-    """Upload scans with EXACT database enum values."""
+    """Upload scans with ALL lowercase enum values."""
     
     db = SessionLocal()
     
@@ -63,7 +59,7 @@ def upload_scans(image_dir: str = './scans/'):
         images = find_images(image_dir)
         
         if not images:
-            logger.error(f"\n❌ No images in {image_dir}")
+            logger.error(f"\n No images in {image_dir}")
             return
         
         # Get patients
@@ -77,26 +73,17 @@ def upload_scans(image_dir: str = './scans/'):
         patients = result.fetchall()
         
         if len(patients) < 3:
-            logger.error("\n❌ Need 3 patients!")
+            logger.error("\n Need 3 patients!")
             return
         
-        print(f"\n{'='*70}")
-        print(f"📤 UPLOADING {len(images)} SCANS")
-        print(f"{'='*70}\n")
+        print(f"UPLOADING {len(images)} SCANS")
         
         print("👥 Patients:")
         for p in patients:
             print(f"   {p.first_name} {p.last_name} ({p.patient_id})")
         print("")
         
-        print("✅ Using EXACT database enum values:")
-        print("   • examination_type: 'X-ray', 'CT' (capitalized)")
-        print("   • body_region: 'Chest' (capitalized)")
-        print("   • urgency_level: 'Routine', 'Urgent', 'Emergent'")
-        print("   • status: 'pending' (lowercase)")
-        print("")
-        
-        urgencies = ['Routine'] * (len(images) - 2) + ['Urgent', 'Emergent']
+        urgencies = ['routine'] * (len(images) - 2) + ['urgent', 'emergent']
         random.shuffle(urgencies)
         
         created = 0
@@ -107,7 +94,7 @@ def upload_scans(image_dir: str = './scans/'):
         lc_count = 0
         
         for patient in patients:
-            print(f"📤 {patient.first_name} {patient.last_name}:")
+            print(f" {patient.first_name} {patient.last_name}:")
             
             for _ in range(per_patient):
                 if img_idx >= len(images):
@@ -119,20 +106,20 @@ def upload_scans(image_dir: str = './scans/'):
                     scan_id = str(uuid.uuid4())
                     scan_number = f"SCAN-{datetime.now().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8].upper()}"
                     
-                    # Filename detection - EXACT database values
+                    # Filename detection 
                     filename_lower = img.name.lower()
                     if filename_lower.startswith('lung'):
-                        exam_type = 'CT'        # EXACT: 'CT' from database
+                        exam_type = 'ct'       
                         model_type = 'LC'
                         lc_count += 1
                     else:
-                        exam_type = 'X-ray'     # EXACT: 'X-ray' from database
+                        exam_type = 'xray'      
                         model_type = 'TB'
                         tb_count += 1
                     
                     scan_date = datetime.utcnow() - timedelta(days=random.randint(0, 20))
                     
-                    # Insert with EXACT enum values
+                    # Insert with ALL LOWERCASE enum values
                     db.execute(text("""
                         INSERT INTO scans (
                             id, patient_id, scan_number, 
@@ -151,10 +138,10 @@ def upload_scans(image_dir: str = './scans/'):
                         'id': scan_id,
                         'patient_id': str(patient.id),
                         'scan_number': scan_number,
-                        'exam_type': exam_type,         # 'X-ray' or 'CT' (EXACT)
-                        'body_region': 'Chest',         # 'Chest' (EXACT)
-                        'urgency': urgencies[img_idx],  # 'Routine', 'Urgent', 'Emergent' (EXACT)
-                        'status': 'pending',            # 'pending' (EXACT)
+                        'exam_type': exam_type,         # 'xray' or 'ct'
+                        'body_region': 'chest',         # 'chest' (lowercase!)
+                        'urgency': urgencies[img_idx],  # 'routine', 'urgent', 'emergent' (lowercase!)
+                        'status': 'pending',            # 'pending'
                         'symptoms': random.choice(SYMPTOMS),
                         'medications': random.choice(MEDICATIONS),
                         'surgeries': random.choice(SURGERIES),
@@ -193,35 +180,34 @@ def upload_scans(image_dir: str = './scans/'):
                     created += 1
                     img_idx += 1
                     
-                    print(f"   ✅ {scan_number} | {img.name:20s} → {exam_type:6s} | {model_type}")
+                    print(f"   ✅ {scan_number} | {img.name:20s} → {exam_type:5s} | {model_type}")
                     
                 except Exception as e:
-                    logger.error(f"   ❌ {str(e)[:200]}")
+                    logger.error(f"   {str(e)[:200]}")
                     db.rollback()
                     img_idx += 1
             
             print("")
         
-        print("="*70)
-        print("✅ COMPLETE!")
-        print("="*70)
         print(f"\nUploaded: {created}/{len(images)}\n")
         
         if created > 0:
-            print("📊 By Patient:")
+            print(" By Patient:")
             for p in patients:
                 result = db.execute(text("SELECT COUNT(*) FROM scans WHERE patient_id = :pid"),
                                    {'pid': str(p.id)})
                 count = result.scalar()
                 print(f"   {p.first_name} {p.last_name}: {count}")
             
-            print(f"\n📊 By Model Type:")
-            print(f"   TB scans (X-ray):  {tb_count}")
-            print(f"   LC scans (CT):     {lc_count}")
+            print(f"\n By Model:")
+            print(f"   TB (xray):  {tb_count}")
+            print(f"   LC (ct):    {lc_count}")
             
-            print(f"\n✅ All scans in PENDING status ({created} total)")
-        
-        print("\n" + "="*70 + "\n")
+            print(f"\n All PENDING ({created} scans)")
+            
+            print("\n Model Selection:")
+            print("   'xray' + 'chest' → TB Model")
+            print("   'ct' + 'chest'   → Lung Cancer Model")
         
     finally:
         db.close()

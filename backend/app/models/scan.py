@@ -14,24 +14,24 @@ class ScanStatus(str, enum.Enum):
     cancelled = "cancelled"
 
 class UrgencyLevel(str, enum.Enum):
-    routine = "Routine"
-    urgent = "Urgent"
-    emergent = "Emergent"
+    routine = "routine"          
+    urgent = "urgent"            
+    emergent = "emergent"        
 
 class ExaminationType(str, enum.Enum):
-    xray = "X-ray"
-    ct = "CT"
-    mri = "MRI"
-    pet = "PET"
-    ultrasound = "Ultrasound"
+    xray = "xray"                
+    ct = "ct"                    
+    mri = "mri"                  
+    pet = "pet"                  
+    ultrasound = "ultrasound"    
 
 class BodyRegion(str, enum.Enum):
-    chest = "Chest"
-    head = "Head"
-    abdomen = "Abdomen"
-    pelvis = "Pelvis"
-    spine = "Spine"
-    extremities = "Extremities"
+    chest = "chest"              
+    head = "head"                
+    abdomen = "abdomen"          
+    pelvis = "pelvis"            
+    spine = "spine"              
+    extremities = "extremities"  
 
 class Scan(Base):
     __tablename__ = "scans"
@@ -73,3 +73,23 @@ class Scan(Base):
     
     def __repr__(self):
         return f"<Scan {self.scan_number}>"
+    
+    # Helper methods for display
+    def get_display_exam_type(self) -> str:
+        """Get capitalized exam type for display."""
+        display_map = {
+            'xray': 'X-ray',
+            'ct': 'CT',
+            'mri': 'MRI',
+            'pet': 'PET',
+            'ultrasound': 'Ultrasound'
+        }
+        return display_map.get(self.examination_type.value, self.examination_type.value)
+    
+    def get_display_body_region(self) -> str:
+        """Get capitalized body region for display."""
+        return self.body_region.value.capitalize()
+    
+    def get_display_urgency(self) -> str:
+        """Get capitalized urgency for display."""
+        return self.urgency_level.value.capitalize()

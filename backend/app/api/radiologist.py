@@ -1,24 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from typing import List
 from uuid import UUID
 from datetime import datetime
-from pathlib import Path
-from io import BytesIO
 import logging
+import uuid as uuid_lib
 
 from app.core.database import get_db
 from app.core.security import require_role
 from app.models.user import User
-from app.models.scan import Scan, ExaminationType, BodyRegion
+from app.models.scan import Scan
 from app.models.scan_image import ScanImage
 from app.models.patient_profile import PatientProfile
 from app.models.radiologist_feedback import RadiologistFeedback
 from app.models.radiologist_profile import RadiologistProfile
 from app.schemas.schemas import (
-    ScanResponse, 
-    ReportResponse, 
     ReportUpdate,
     FeedbackCreate,
     FeedbackResponse
@@ -27,10 +23,16 @@ from app.schemas.schemas import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# ============================================================================
-# SCAN QUEUE ENDPOINTS
-# ============================================================================
+# Helper function to capitalize lowercase enum values for display
+def capitalize_for_display(value: str, field_type: str) -> str:
+    """Capitalize lowercase enum values for UI display."""
+    if field_type == 'examination_type':
+        return {'xray': 'X-ray', 'ct': 'CT', 'mri': 'MRI', 'pet': 'PET', 'ultrasound': 'Ultrasound'}.get(value, value)
+    elif field_type in ['body_region', 'urgency_level']:
+        return value.capitalize()
+    return value
 
+# SCAN QUEUE ENDPOINTS
 @router.get("/scans/pending")
 async def get_pending_scans(
     current_user: User = Depends(require_role(["radiologist"])),
@@ -51,8 +53,8 @@ async def get_pending_scans(
             WHERE s.status IN ('pending', 'in_progress', 'ai_analyzed')
             ORDER BY 
                 CASE s.urgency_level 
-                    WHEN 'Emergent' THEN 1
-                    WHEN 'Urgent' THEN 2
+                    WHEN 'emergent' THEN 1
+                    WHEN 'urgent' THEN 2
                     ELSE 3
                 END,
                 s.created_at DESC
@@ -65,9 +67,9 @@ async def get_pending_scans(
                 "scan_number": row.scan_number,
                 "patient_name": row.patient_name,
                 "patient_id": row.patient_id,
-                "examination_type": row.examination_type,
-                "body_region": row.body_region,
-                "urgency_level": row.urgency_level,
+                "examination_type": capitalize_for_display(row.examination_type, 'examination_type'),
+                "body_region": capitalize_for_display(row.body_region, 'body_region'),
+                "urgency_level": capitalize_for_display(row.urgency_level, 'urgency_level'),
                 "status": row.status,
                 "scan_date": row.scan_date.isoformat(),
                 "created_at": row.created_at.isoformat(),
@@ -112,9 +114,9 @@ async def get_completed_scans(
                 "scan_number": row.scan_number,
                 "patient_name": row.patient_name,
                 "patient_id": row.patient_id,
-                "examination_type": row.examination_type,
-                "body_region": row.body_region,
-                "urgency_level": row.urgency_level,
+                "examination_type": capitalize_for_display(row.examination_type, 'examination_type'),
+                "body_region": capitalize_for_display(row.body_region, 'body_region'),
+                "urgency_level": capitalize_for_display(row.urgency_level, 'urgency_level'),
                 "status": row.status,
                 "scan_date": row.scan_date.isoformat(),
                 "created_at": row.created_at.isoformat(),
@@ -165,7 +167,6 @@ async def get_scan_details(
         
         images = []
         for img in images_result:
-            # Convert gs:// to signed HTTPS URL (1 hour expiration)
             signed_url = gcs_storage.get_signed_url(img.image_path, expiration=3600)
             
             images.append({
@@ -182,9 +183,9 @@ async def get_scan_details(
             "patient_name": row.patient_name,
             "patient_id": row.patient_id,
             "age_years": row.age_years,
-            "examination_type": row.examination_type,
-            "body_region": row.body_region,
-            "urgency_level": row.urgency_level,
+            "examination_type": capitalize_for_display(row.examination_type, 'examination_type'),
+            "body_region": capitalize_for_display(row.body_region, 'body_region'),
+            "urgency_level": capitalize_for_display(row.urgency_level, 'urgency_level'),
             "status": row.status,
             "scan_date": row.scan_date.isoformat(),
             "presenting_symptoms": row.presenting_symptoms or [],
@@ -200,10 +201,7 @@ async def get_scan_details(
         logger.error(f"Failed to get scan: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ============================================================================
-# AI ANALYSIS ENDPOINTS
-# ============================================================================
-
+# AI ANALYSIS
 @router.post("/scans/{scan_id}/analyze")
 async def start_ai_analysis(
     scan_id: UUID,
@@ -257,11 +255,10 @@ async def get_ai_results(
     current_user: User = Depends(require_role(["radiologist"])),
     db: Session = Depends(get_db)
 ):
-    """Get AI prediction results for a scan."""
+    """Get AI prediction results."""
     try:
         from app.services.gcs_storage import gcs_storage
         
-        # Get latest AI prediction
         result = db.execute(text("""
             SELECT 
                 id, predicted_class, confidence_score, class_probabilities,
@@ -277,7 +274,7 @@ async def get_ai_results(
         if not prediction:
             raise HTTPException(status_code=404, detail="No AI results available yet")
         
-        # Get GradCAM if available
+        # Get GradCAM
         gradcam_result = db.execute(text("""
             SELECT overlay_url
             FROM gradcam_outputs
@@ -290,10 +287,9 @@ async def get_ai_results(
         gradcam_url = None
         
         if gradcam and gradcam.overlay_url:
-            # Convert to signed URL
             gradcam_url = gcs_storage.get_signed_url(gradcam.overlay_url, expiration=3600)
         
-        # Get original scan image
+        # Get original image
         image_result = db.execute(text("""
             SELECT image_path
             FROM scan_images
@@ -308,7 +304,7 @@ async def get_ai_results(
         if image:
             original_image_url = gcs_storage.get_signed_url(image.image_path, expiration=3600)
         
-        # Parse class_probabilities (stored as string)
+        # Parse class_probabilities
         import json
         try:
             probs = json.loads(prediction.class_probabilities) if isinstance(prediction.class_probabilities, str) else prediction.class_probabilities
@@ -339,9 +335,9 @@ async def get_draft_report(
     current_user: User = Depends(require_role(["radiologist"])),
     db: Session = Depends(get_db)
 ):
-    """Get draft report (AI-generated or create from template)."""
+    """Get draft report."""
     try:
-        # Check if report already exists
+        # Check if report exists
         result = db.execute(text("""
             SELECT 
                 r.id, r.report_number, r.report_title, r.clinical_indication,
@@ -360,7 +356,6 @@ async def get_draft_report(
         report = result.fetchone()
         
         if report:
-            # Return existing report
             return {
                 "id": str(report.id),
                 "report_number": report.report_number,
@@ -375,12 +370,11 @@ async def get_draft_report(
                 "patient_name": report.patient_name
             }
         
-        # No report exists - create template based on AI prediction
+        # Create template report
         scan = db.query(Scan).filter(Scan.id == scan_id).first()
         if not scan:
             raise HTTPException(status_code=404, detail="Scan not found")
         
-        # Get AI prediction
         ai_result = db.execute(text("""
             SELECT predicted_class, confidence_score
             FROM ai_predictions
@@ -391,7 +385,6 @@ async def get_draft_report(
         
         ai_prediction = ai_result.fetchone()
         
-        # Get patient info
         patient_result = db.execute(text("""
             SELECT u.first_name || ' ' || u.last_name as patient_name, s.scan_number
             FROM scans s
@@ -402,7 +395,6 @@ async def get_draft_report(
         
         patient = patient_result.fetchone()
         
-        # Generate template report
         if ai_prediction:
             predicted_class = ai_prediction.predicted_class
             confidence = float(ai_prediction.confidence_score)
@@ -410,15 +402,9 @@ async def get_draft_report(
             predicted_class = "Unknown"
             confidence = 0.0
         
-        # Create report template based on prediction
-        report_template = generate_report_template(
-            scan=scan,
-            predicted_class=predicted_class,
-            confidence=confidence
-        )
+        report_template = generate_report_template(scan, predicted_class, confidence)
         
-        # Create new report in database
-        report_id = str(uuid.uuid4())
+        report_id = str(uuid_lib.uuid4())
         report_number = f"RPT-{scan.scan_number}"
         
         db.execute(text("""
@@ -469,46 +455,42 @@ async def get_draft_report(
 
 
 def generate_report_template(scan: Scan, predicted_class: str, confidence: float) -> dict:
-    """Generate report template based on AI prediction."""
+    """Generate report template."""
     
-    exam_type = str(scan.examination_type)
+    exam_display = capitalize_for_display(scan.examination_type.value, 'examination_type')
     
     if predicted_class == "Tuberculosis":
         return {
-            "title": f"{exam_type} Report - Chest",
+            "title": f"{exam_display} Report - Chest",
             "indication": "Evaluation for tuberculosis",
-            "technique": f"Chest {exam_type} PA and lateral views obtained",
-            "findings": f"AI-assisted analysis suggests findings consistent with active pulmonary tuberculosis (confidence: {confidence*100:.1f}%). Bilateral upper lobe infiltrates noted with features suggestive of cavitation. Hilar lymphadenopathy observed. Image quality is adequate for diagnostic interpretation.",
-            "impression": "Findings consistent with active pulmonary tuberculosis. Recommend sputum culture and clinical correlation.",
-            "recommendations": "1. Sputum culture for Mycobacterium tuberculosis\n2. Initiate respiratory isolation if clinically indicated\n3. Clinical correlation with symptom history\n4. Consider TB treatment protocol if culture positive\n5. Contact tracing if diagnosis confirmed"
+            "technique": f"Chest {exam_display} PA and lateral views obtained",
+            "findings": f"AI-assisted analysis suggests findings consistent with active pulmonary tuberculosis (confidence: {confidence*100:.1f}%). Bilateral upper lobe infiltrates noted. Image quality adequate.",
+            "impression": "Findings consistent with active pulmonary tuberculosis. Recommend sputum culture.",
+            "recommendations": "1. Sputum culture\n2. Respiratory isolation\n3. TB treatment protocol if confirmed"
         }
-    
     elif predicted_class in ["adenocarcinoma", "squamous_cell_carcinoma", "large_cell_carcinoma"]:
         return {
-            "title": f"{exam_type} Report - Chest",
+            "title": f"{exam_display} Report - Chest",
             "indication": "Evaluation for lung pathology",
-            "technique": f"Chest {exam_type} with standard protocol",
-            "findings": f"AI-assisted analysis suggests {predicted_class.replace('_', ' ')} (confidence: {confidence*100:.1f}%). Mass lesion identified in lung parenchyma requiring further characterization. Image quality is adequate for evaluation.",
-            "impression": f"Findings suspicious for {predicted_class.replace('_', ' ')}. Recommend tissue sampling and oncology consultation.",
-            "recommendations": "1. CT chest with contrast for better characterization\n2. PET-CT for staging evaluation\n3. Tissue biopsy for histological confirmation\n4. Oncology consultation\n5. Molecular testing if malignancy confirmed"
+            "technique": f"Chest {exam_display} with standard protocol",
+            "findings": f"AI suggests {predicted_class.replace('_', ' ')} (confidence: {confidence*100:.1f}%). Mass lesion identified.",
+            "impression": f"Findings suspicious for {predicted_class.replace('_', ' ')}. Recommend biopsy.",
+            "recommendations": "1. CT with contrast\n2. PET-CT staging\n3. Tissue biopsy\n4. Oncology consult"
         }
-    
-    else:  # Normal or other
+    else:
         return {
-            "title": f"{exam_type} Report - Chest",
+            "title": f"{exam_display} Report - Chest",
             "indication": "Routine chest imaging",
-            "technique": f"Chest {exam_type} obtained",
-            "findings": f"AI-assisted analysis suggests no acute abnormality (confidence: {confidence*100:.1f}%). Lungs are clear bilaterally. No focal consolidation, mass, or nodule identified. Cardiac silhouette is normal. No pleural effusion or pneumothorax. Image quality is adequate for diagnostic interpretation.",
-            "impression": "No acute cardiopulmonary abnormality detected.",
-            "recommendations": "Continue routine care. No immediate follow-up required based on imaging."
+            "technique": f"Chest {exam_display} obtained",
+            "findings": f"AI suggests no acute abnormality (confidence: {confidence*100:.1f}%). Lungs clear bilaterally.",
+            "impression": "No acute cardiopulmonary abnormality.",
+            "recommendations": "Continue routine care."
         }
 
 
 def determine_model(exam_type, body_region):
-    """Determine model - handles capitalized enum values from database."""
-    from app.models.scan import ExaminationType, BodyRegion
+    """Determine model - ALL LOWERCASE comparison."""
     
-    # Get string values
     if hasattr(exam_type, 'value'):
         exam_val = exam_type.value
     else:
@@ -519,12 +501,10 @@ def determine_model(exam_type, body_region):
     else:
         body_val = str(body_region)
     
-    # X-ray (capitalized) + Chest → TB Model
-    if exam_val == 'X-ray' and body_val == 'Chest':
+    # ALL LOWERCASE
+    if exam_val == 'xray' and body_val == 'chest':
         return {'type': 'tb', 'name': 'TB Detection Model'}
-    
-    # CT (capitalized) + Chest → Lung Cancer Model
-    elif exam_val == 'CT' and body_val == 'Chest':
+    elif exam_val == 'ct' and body_val == 'chest':
         return {'type': 'lung_cancer', 'name': 'Lung Cancer Model'}
     
     return None
@@ -535,7 +515,6 @@ def run_ai_analysis_workflow(scan_id: str, model_type: str):
     from app.core.database import SessionLocal
     from app.services.gcs_storage import gcs_storage
     from app.services.ml_model_service import ml_model_service
-    import uuid
     
     db = SessionLocal()
     
@@ -567,6 +546,8 @@ def run_ai_analysis_workflow(scan_id: str, model_type: str):
             raise Exception(f"Unknown model: {model_type}")
         
         # Save prediction
+        from psycopg2.extras import Json
+        ai_prediction_id = str(uuid_lib.uuid4())
         db.execute(text("""
             INSERT INTO ai_predictions (
                 id, scan_id, model_name, model_version,
@@ -577,16 +558,16 @@ def run_ai_analysis_workflow(scan_id: str, model_type: str):
                 :class, :confidence, :probs, NOW()
             )
         """), {
-            'id': str(uuid.uuid4()),
+            'id': ai_prediction_id,
             'scan_id': scan_id,
             'model': f'{model_type.upper()}-ResNet50',
             'version': 'v1.0',
             'class': prediction['predicted_class'],
             'confidence': prediction['confidence'],
-            'probs': str(prediction['class_probabilities'])
+            'probs': Json(prediction['class_probabilities'])
         })
         
-        # Upload GradCAM if available
+        # Upload GradCAM
         if gradcam_image:
             patient = db.query(PatientProfile).filter(
                 PatientProfile.id == scan.patient_id
@@ -608,7 +589,7 @@ def run_ai_analysis_workflow(scan_id: str, model_type: str):
                     :id, :scan_id, :url, :url, :class, NOW()
                 )
             """), {
-                'id': str(uuid.uuid4()),
+                'id': str(uuid_lib.uuid4()),
                 'scan_id': scan_id,
                 'url': gradcam_url,
                 'class': prediction['predicted_class']
@@ -628,10 +609,7 @@ def run_ai_analysis_workflow(scan_id: str, model_type: str):
     finally:
         db.close()
 
-# ============================================================================
-# FEEDBACK
-# ============================================================================
-
+# FEEDBACK & REPORTS
 @router.post("/scans/{scan_id}/feedback", response_model=FeedbackResponse)
 async def submit_feedback(
     scan_id: UUID,
@@ -701,9 +679,6 @@ async def submit_feedback(
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-# ============================================================================
-# REPORT ENDPOINTS
-# ============================================================================
 
 @router.put("/reports/{report_id}")
 async def update_report(
@@ -714,7 +689,6 @@ async def update_report(
 ):
     """Update report."""
     try:
-        # Build update query dynamically
         updates = []
         params = {'report_id': str(report_id)}
         
@@ -751,7 +725,7 @@ async def update_report(
         db.execute(text(query), params)
         db.commit()
         
-        return {"message": "Report updated successfully", "report_id": str(report_id)}
+        return {"message": "Report updated", "report_id": str(report_id)}
         
     except HTTPException:
         raise
@@ -767,31 +741,24 @@ async def publish_report(
     current_user: User = Depends(require_role(["radiologist"])),
     db: Session = Depends(get_db)
 ):
-    """Publish report to patient."""
+    """Publish report."""
     try:
         db.execute(text("""
             UPDATE reports 
-            SET report_status = 'published', 
-                published_at = NOW(),
-                updated_at = NOW()
+            SET report_status = 'published', published_at = NOW(), updated_at = NOW()
             WHERE id = :report_id
         """), {"report_id": str(report_id)})
         
         db.commit()
-        
         logger.info(f"✓ Report published: {report_id}")
         
-        return {"message": "Report published successfully", "report_id": str(report_id)}
+        return {"message": "Report published", "report_id": str(report_id)}
         
     except Exception as e:
-        logger.error(f"Failed to publish report: {e}")
+        logger.error(f"Failed to publish: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# ============================================================================
-# PROFILE
-# ============================================================================
 
 @router.get("/profile")
 async def get_radiologist_profile(
