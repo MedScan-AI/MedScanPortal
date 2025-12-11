@@ -53,10 +53,10 @@ async def chat_with_rag(
         
         # Configure timeout - longer for cross-cloud communication
         timeout_config = httpx.Timeout(
-            connect=15.0,   # 15 seconds to establish connection
-            read=120.0,     # 2 minutes to read response
-            write=10.0,     # 10 seconds to send request
-            pool=10.0       # 10 seconds to get connection from pool
+            connect=300.0,   # 15 seconds to establish connection
+            read=300.0,     # 2 minutes to read response
+            write=300.0,     # 10 seconds to send request
+            pool=300.0       # 10 seconds to get connection from pool
         )
         
         # Call GCP RAG endpoint with better error handling
@@ -237,7 +237,7 @@ async def check_rag_health():
     """Check if RAG endpoint is accessible."""
     try:
         # Use shorter timeout for health check
-        timeout_config = httpx.Timeout(10.0)
+        timeout_config = httpx.Timeout(300.0)
         
         async with httpx.AsyncClient(timeout=timeout_config) as client:
             test_request = {
