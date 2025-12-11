@@ -45,6 +45,7 @@ const ScanDetailPage = () => {
     try {
       const response = await radiologistService.getScanById(scanId);
       setScan(response.data);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to load scan details');
     } finally {
@@ -64,6 +65,7 @@ const ScanDetailPage = () => {
         fetchScanDetails();
         setStartingAnalysis(false);
       }, 2000);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Failed to start AI analysis');
       setStartingAnalysis(false);

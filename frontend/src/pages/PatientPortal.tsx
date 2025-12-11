@@ -203,10 +203,10 @@ const PatientPortal = () => {
                   transition: 'all 0.2s'
                 }}
               >
-                {tab === 'profile' && '👤 My Profile'}
-                {tab === 'scans' && '🔬 My Scans'}
-                {tab === 'reports' && '📋 My Reports'}
-                {tab === 'chat' && '💬 AI Assistant'}
+                {tab === 'profile' && 'My Profile'}
+                {tab === 'scans' && 'My Scans'}
+                {tab === 'reports' && 'My Reports'}
+                {tab === 'chat' && 'AI Assistant'}
               </button>
             </li>
           ))}
@@ -313,7 +313,7 @@ const PatientPortal = () => {
               }}>
                 <div className="card-body p-4">
                   <h5 className="mb-3 fw-bold" style={{ color: '#dc3545' }}>
-                    🚨 Emergency Contact
+                    Emergency Contact
                   </h5>
                   <div className="mb-2">
                     <label className="text-muted small fw-semibold mb-1">Contact Name</label>
@@ -459,7 +459,7 @@ const PatientPortal = () => {
                             </p>
                             <p className="mb-2" style={{ lineHeight: 1.6 }}>{report.impression}</p>
                             <small className="text-muted">
-                              📅 Published on {new Date(report.published_at).toLocaleDateString('en-US', {
+                              Published on {new Date(report.published_at).toLocaleDateString('en-US', {
                                 year: 'numeric',
                                 month: 'long',
                                 day: 'numeric'
@@ -663,7 +663,7 @@ const PatientPortal = () => {
                 color: 'white',
                 borderRadius: '12px 12px 0 0'
               }}>
-                <h5 className="modal-title fw-bold">📋 {selectedReport.report_title}</h5>
+                <h5 className="modal-title fw-bold">{selectedReport.report_title}</h5>
                 <button 
                   type="button" 
                   className="btn-close btn-close-white" 

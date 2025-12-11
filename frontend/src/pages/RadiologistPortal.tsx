@@ -14,6 +14,7 @@ interface Scan {
   status: string;
   scan_date: string;
   created_at: string;
+  report_status?: string; // For completed scans
 }
 
 interface RadiologistProfile {
@@ -33,12 +34,34 @@ const RadiologistPortal = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'pending' | 'completed' | 'profile'>('pending');
   const [scans, setScans] = useState<Scan[]>([]);
+  const [filteredScans, setFilteredScans] = useState<Scan[]>([]);
   const [profile, setProfile] = useState<RadiologistProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Filter state
+  const [patientFilter, setPatientFilter] = useState('');
 
   useEffect(() => {
     fetchData();
   }, [activeTab]);
+
+  useEffect(() => {
+    // Apply filters
+    if (activeTab === 'pending') {
+      let filtered = scans;
+      
+      if (patientFilter) {
+        filtered = filtered.filter(scan => 
+          scan.patient_name.toLowerCase().includes(patientFilter.toLowerCase()) ||
+          scan.patient_id.toLowerCase().includes(patientFilter.toLowerCase())
+        );
+      }
+      
+      setFilteredScans(filtered);
+    } else {
+      setFilteredScans(scans);
+    }
+  }, [patientFilter, scans, activeTab]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -63,6 +86,10 @@ const RadiologistPortal = () => {
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const clearFilters = () => {
+    setPatientFilter('');
   };
 
   const getStatusBadge = (status: string) => {
@@ -111,6 +138,30 @@ const RadiologistPortal = () => {
     );
   };
 
+  const getPublishedBadge = (reportStatus?: string) => {
+    if (reportStatus === 'published') {
+      return (
+        <span className="badge bg-success" style={{
+          fontSize: '0.8rem',
+          fontWeight: 500,
+          padding: '0.4rem 0.8rem'
+        }}>
+          ✓ Published
+        </span>
+      );
+    } else {
+      return (
+        <span className="badge bg-warning text-dark" style={{
+          fontSize: '0.8rem',
+          fontWeight: 500,
+          padding: '0.4rem 0.8rem'
+        }}>
+          Draft
+        </span>
+      );
+    }
+  };
+
   return (
     <div style={{ minHeight: '100vh', background: '#f5f7fa' }}>
       {/* Professional Navigation Bar */}
@@ -124,7 +175,7 @@ const RadiologistPortal = () => {
           </span>
           <div className="d-flex align-items-center gap-3">
             <span className="text-white">
-              Dr. {user?.first_name} {user?.last_name}
+              {user?.first_name} {user?.last_name}
             </span>
             <button 
               className="btn btn-outline-light btn-sm"
@@ -158,7 +209,7 @@ const RadiologistPortal = () => {
                 transition: 'all 0.2s'
               }}
             >
-              📋 Pending Queue
+              Pending Scan Queue
             </button>
           </li>
           <li className="nav-item">
@@ -175,7 +226,7 @@ const RadiologistPortal = () => {
                 transition: 'all 0.2s'
               }}
             >
-              ✅ Completed Cases
+              Completed Cases
             </button>
           </li>
           <li className="nav-item">
@@ -192,7 +243,7 @@ const RadiologistPortal = () => {
                 transition: 'all 0.2s'
               }}
             >
-              👤 My Profile
+              My Profile
             </button>
           </li>
         </ul>
@@ -209,7 +260,6 @@ const RadiologistPortal = () => {
               </div>
             ) : (
               <div className="row g-4">
-                {/* Personal Information */}
                 <div className="col-md-6">
                   <div className="card border-0 shadow-sm h-100" style={{ borderRadius: '12px' }}>
                     <div className="card-body p-4">
@@ -219,7 +269,7 @@ const RadiologistPortal = () => {
                       <div className="mb-3">
                         <label className="text-muted small fw-semibold mb-1">Full Name</label>
                         <p className="mb-0 fw-semibold" style={{ fontSize: '1.05rem' }}>
-                          Dr. {profile?.first_name} {profile?.last_name}
+                          {profile?.first_name} {profile?.last_name}
                         </p>
                       </div>
                       <div className="mb-3">
@@ -234,7 +284,6 @@ const RadiologistPortal = () => {
                   </div>
                 </div>
 
-                {/* Professional Information */}
                 <div className="col-md-6">
                   <div className="card border-0 shadow-sm h-100" style={{ borderRadius: '12px' }}>
                     <div className="card-body p-4">
@@ -268,7 +317,6 @@ const RadiologistPortal = () => {
                   </div>
                 </div>
 
-                {/* Statistics Card */}
                 <div className="col-12">
                   <div className="card border-0 shadow-sm" style={{ 
                     borderRadius: '12px',
@@ -276,7 +324,7 @@ const RadiologistPortal = () => {
                   }}>
                     <div className="card-body p-4">
                       <h5 className="mb-4 fw-bold" style={{ color: '#0f4c81' }}>
-                        📊 Performance Overview
+                        Performance Overview
                       </h5>
                       <div className="row text-center">
                         <div className="col-md-4">
@@ -331,16 +379,42 @@ const RadiologistPortal = () => {
         {(activeTab === 'pending' || activeTab === 'completed') && (
           <div>
             <div className="d-flex justify-content-between align-items-center mb-4">
-              <h4 className="mb-0 fw-bold" style={{ color: '#2c3e50' }}>
-                {activeTab === 'pending' ? 'Pending Scans' : 'Completed Scans'}
-              </h4>
-              <span className="badge bg-primary" style={{ 
-                fontSize: '0.9rem',
-                padding: '0.5rem 1rem',
-                fontWeight: 500
-              }}>
-                {scans.length} {scans.length === 1 ? 'scan' : 'scans'}
-              </span>
+              <div>
+                <h4 className="mb-1 fw-bold" style={{ color: '#2c3e50' }}>
+                  {activeTab === 'pending' ? 'Pending Scans' : 'Completed Scans'}
+                </h4>
+                <p className="text-muted mb-0 small">
+                  {filteredScans.length} {filteredScans.length === 1 ? 'scan' : 'scans'}
+                  {activeTab === 'pending' && patientFilter && ' (filtered)'}
+                </p>
+              </div>
+              
+              {/* Filters for Pending Queue */}
+              {activeTab === 'pending' && (
+                <div className="d-flex gap-2 align-items-center">
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Search by patient name or ID..."
+                    value={patientFilter}
+                    onChange={(e) => setPatientFilter(e.target.value)}
+                    style={{
+                      width: '300px',
+                      borderRadius: '8px',
+                      border: '2px solid #dee2e6'
+                    }}
+                  />
+                  {patientFilter && (
+                    <button 
+                      className="btn btn-outline-secondary btn-sm"
+                      onClick={clearFilters}
+                      style={{ borderRadius: '6px' }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {loading ? (
@@ -350,7 +424,7 @@ const RadiologistPortal = () => {
                 </div>
                 <p className="mt-3 text-muted">Loading scans...</p>
               </div>
-            ) : scans.length === 0 ? (
+            ) : filteredScans.length === 0 ? (
               <div className="card border-0 shadow-sm" style={{ borderRadius: '12px' }}>
                 <div className="card-body text-center py-5">
                   <svg 
@@ -364,7 +438,11 @@ const RadiologistPortal = () => {
                     <path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/>
                   </svg>
                   <p className="text-muted mb-0">
-                    {activeTab === 'pending' ? 'No pending scans' : 'No completed scans'}
+                    {activeTab === 'pending' 
+                      ? patientFilter 
+                        ? 'No scans found matching your search'
+                        : 'No pending scans' 
+                      : 'No completed scans'}
                   </p>
                 </div>
               </div>
@@ -377,14 +455,16 @@ const RadiologistPortal = () => {
                       <th className="fw-semibold">Scan Number</th>
                       <th className="fw-semibold">Exam Type</th>
                       <th className="fw-semibold">Region</th>
-                      <th className="fw-semibold">Urgency</th>
+                      <th className="fw-semibold">
+                        {activeTab === 'pending' ? 'Urgency' : 'Report Status'}
+                      </th>
                       <th className="fw-semibold">Status</th>
                       <th className="fw-semibold">Date</th>
                       <th className="fw-semibold text-end">Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {scans.map((scan) => (
+                    {filteredScans.map((scan) => (
                       <tr 
                         key={scan.id}
                         style={{ 
@@ -406,7 +486,11 @@ const RadiologistPortal = () => {
                         </td>
                         <td>{scan.examination_type}</td>
                         <td>{scan.body_region}</td>
-                        <td>{getUrgencyBadge(scan.urgency_level)}</td>
+                        <td>
+                          {activeTab === 'pending' 
+                            ? getUrgencyBadge(scan.urgency_level)
+                            : getPublishedBadge(scan.report_status)}
+                        </td>
                         <td>{getStatusBadge(scan.status)}</td>
                         <td>
                           <small>
@@ -430,7 +514,7 @@ const RadiologistPortal = () => {
                               fontWeight: 500
                             }}
                           >
-                            Review
+                            {activeTab === 'pending' ? 'Review' : 'View'}
                           </button>
                         </td>
                       </tr>

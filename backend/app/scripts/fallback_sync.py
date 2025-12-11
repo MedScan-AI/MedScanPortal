@@ -36,7 +36,7 @@ def retry_failed_syncs(days_back: int = 7):
         ).all()
         
         if not failed_scans:
-            logger.info("✓ All scans synced - nothing to retry")
+            logger.info("All scans synced - nothing to retry")
             return
         
         logger.info(f"Found {len(failed_scans)} scans to retry")
@@ -69,7 +69,7 @@ def retry_failed_syncs(days_back: int = 7):
                 failed += 1
                 logger.error(f"Retry failed for {scan.scan_number}: {result.get('message')}")
         
-        logger.info(f"✓ Retry complete: {success} synced, {failed} failed")
+        logger.info(f"Retry complete: {success} synced, {failed} failed")
         
     finally:
         db.close()

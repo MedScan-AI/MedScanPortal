@@ -1,6 +1,5 @@
 """
 RAG Chat Endpoint - Connects to GCP Cloud Run RAG Service
-Cleans response: removes References section and Important notice
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel

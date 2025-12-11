@@ -1,3 +1,6 @@
+"""
+Radiologist API Routes
+"""
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -20,17 +23,14 @@ from app.schemas.schemas import (
     FeedbackResponse
 )
 
+# Import report generation helper
+from app.services.report_templates import (
+    generate_report_template,
+    capitalize_for_display
+)
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-# Helper function to capitalize lowercase enum values for display
-def capitalize_for_display(value: str, field_type: str) -> str:
-    """Capitalize lowercase enum values for UI display."""
-    if field_type == 'examination_type':
-        return {'xray': 'X-ray', 'ct': 'CT', 'mri': 'MRI', 'pet': 'PET', 'ultrasound': 'Ultrasound'}.get(value, value)
-    elif field_type in ['body_region', 'urgency_level']:
-        return value.capitalize()
-    return value
 
 
 def normalize_diagnosis(ml_prediction: str) -> str:
@@ -44,25 +44,25 @@ def normalize_diagnosis(ml_prediction: str) -> str:
     
     # Normal cases
     if pred_lower in ['normal', 'no finding', 'negative']:
-        return 'normal'  # lowercase
+        return 'normal'
     
     # TB cases
     elif pred_lower in ['tuberculosis', 'tb', 'positive']:
-        return 'tuberculosis'  # lowercase
+        return 'tuberculosis'
     
     # Lung cancer cases  
     elif pred_lower in ['adenocarcinoma', 'squamous_cell_carcinoma', 'squamous_cell',
                         'large_cell_carcinoma', 'large_cell', 'lung_cancer', 'malignant',
                         'benign']:
-        return 'lung_cancer'  # lowercase
+        return 'lung_cancer'
     
     # Inconclusive
     elif pred_lower in ['inconclusive', 'uncertain', 'unknown']:
-        return 'inconclusive'  # lowercase
+        return 'inconclusive'
     
     # Other abnormality
     else:
-        return 'other_abnormality'  # lowercase
+        return 'other_abnormality'
 
 
 def capitalize_diagnosis_for_display(diagnosis: str) -> str:
@@ -75,6 +75,7 @@ def capitalize_diagnosis_for_display(diagnosis: str) -> str:
         'inconclusive': 'Inconclusive'
     }
     return display_map.get(diagnosis, diagnosis.replace('_', ' ').title())
+
 
 @router.get("/scans/pending")
 async def get_pending_scans(
@@ -134,7 +135,7 @@ async def get_completed_scans(
     current_user: User = Depends(require_role(["radiologist"])),
     db: Session = Depends(get_db)
 ):
-    """Get completed scans."""
+    """Get completed scans with report status."""
     try:
         result = db.execute(text("""
             SELECT 
@@ -142,10 +143,12 @@ async def get_completed_scans(
                 s.urgency_level, s.status, s.scan_date, s.created_at,
                 s.presenting_symptoms, s.current_medications, s.previous_surgeries,
                 pp.patient_id,
-                u.first_name || ' ' || u.last_name as patient_name
+                u.first_name || ' ' || u.last_name as patient_name,
+                r.report_status
             FROM scans s
             JOIN patient_profiles pp ON s.patient_id = pp.id
             JOIN users u ON pp.user_id = u.id
+            LEFT JOIN reports r ON s.id = r.scan_id
             WHERE s.status = 'completed'
             ORDER BY s.radiologist_review_completed_at DESC
         """))
@@ -165,7 +168,8 @@ async def get_completed_scans(
                 "created_at": row.created_at.isoformat(),
                 "presenting_symptoms": row.presenting_symptoms or [],
                 "current_medications": row.current_medications or [],
-                "previous_surgeries": row.previous_surgeries or []
+                "previous_surgeries": row.previous_surgeries or [],
+                "report_status": row.report_status or "draft"
             })
         
         return scans
@@ -244,6 +248,7 @@ async def get_scan_details(
         logger.error(f"Failed to get scan: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # AI ANALYSIS
 @router.post("/scans/{scan_id}/analyze")
 async def start_ai_analysis(
@@ -276,7 +281,7 @@ async def start_ai_analysis(
             model_type=model_info['type']
         )
         
-        logger.info(f"✓ Starting {model_info['name']} for {scan.scan_number}")
+        logger.info(f" Starting {model_info['name']} for {scan.scan_number}")
         
         return {
             "message": "AI analysis started",
@@ -317,7 +322,7 @@ async def get_ai_results(
         if not prediction:
             raise HTTPException(status_code=404, detail="No AI results available yet")
         
-        # Get GradCAM using ai_prediction_id (not scan_id)
+        # Get GradCAM
         gradcam_result = db.execute(text("""
             SELECT overlay_url, overlay_path, heatmap_url, heatmap_path
             FROM gradcam_outputs
@@ -330,7 +335,6 @@ async def get_ai_results(
         gradcam_url = None
         
         if gradcam:
-            # Use overlay_path or heatmap_path
             gcs_path = gradcam.overlay_path or gradcam.overlay_url or gradcam.heatmap_path or gradcam.heatmap_url
             if gcs_path:
                 gradcam_url = gcs_storage.get_signed_url(gcs_path, expiration=3600)
@@ -381,23 +385,31 @@ async def get_draft_report(
     current_user: User = Depends(require_role(["radiologist"])),
     db: Session = Depends(get_db)
 ):
-    """Get draft report."""
+    """Get draft report with radiologist information."""
     try:
         # Check if report exists
         result = db.execute(text("""
             SELECT 
                 r.id, r.report_number, r.report_title, r.clinical_indication,
                 r.technique, r.findings, r.impression, r.recommendations,
-                r.report_status, s.scan_number,
-                u.first_name || ' ' || u.last_name as patient_name
+                r.report_status, r.created_at, r.published_at,
+                s.scan_number,
+                u.first_name || ' ' || u.last_name as patient_name,
+                rad_u.first_name || ' ' || rad_u.last_name as radiologist_name,
+                rad_p.license_number, rad_p.specialization
             FROM reports r
             JOIN scans s ON r.scan_id = s.id
             JOIN patient_profiles pp ON s.patient_id = pp.id
             JOIN users u ON pp.user_id = u.id
+            LEFT JOIN radiologist_profiles rad_p ON rad_p.user_id = :radiologist_id
+            LEFT JOIN users rad_u ON rad_p.user_id = rad_u.id
             WHERE r.scan_id = :scan_id
             ORDER BY r.created_at DESC
             LIMIT 1
-        """), {"scan_id": str(scan_id)})
+        """), {
+            "scan_id": str(scan_id),
+            "radiologist_id": str(current_user.id)
+        })
         
         report = result.fetchone()
         
@@ -413,14 +425,20 @@ async def get_draft_report(
                 "recommendations": report.recommendations,
                 "report_status": report.report_status,
                 "scan_number": report.scan_number,
-                "patient_name": report.patient_name
+                "patient_name": report.patient_name,
+                "radiologist_name": report.radiologist_name or f"Dr. {current_user.first_name} {current_user.last_name}",
+                "license_number": report.license_number,
+                "specialization": report.specialization,
+                "created_at": report.created_at.isoformat(),
+                "published_at": report.published_at.isoformat() if report.published_at else None
             }
         
-        # Create template report
+        # Create template report if none exists
         scan = db.query(Scan).filter(Scan.id == scan_id).first()
         if not scan:
             raise HTTPException(status_code=404, detail="Scan not found")
         
+        # Get AI prediction
         ai_result = db.execute(text("""
             SELECT predicted_class, confidence_score
             FROM ai_predictions
@@ -431,6 +449,7 @@ async def get_draft_report(
         
         ai_prediction = ai_result.fetchone()
         
+        # Get patient info
         patient_result = db.execute(text("""
             SELECT u.first_name || ' ' || u.last_name as patient_name, s.scan_number
             FROM scans s
@@ -441,6 +460,9 @@ async def get_draft_report(
         
         patient = patient_result.fetchone()
         
+        # Get radiologist info
+        radiologist_name = f"Dr. {current_user.first_name} {current_user.last_name}"
+        
         if ai_prediction:
             predicted_class = ai_prediction.predicted_class
             confidence = float(ai_prediction.confidence_score)
@@ -448,11 +470,18 @@ async def get_draft_report(
             predicted_class = "Unknown"
             confidence = 0.0
         
-        report_template = generate_report_template(scan, predicted_class, confidence)
+        # Generate comprehensive report using helper function
+        report_template = generate_report_template(
+            scan, 
+            predicted_class, 
+            confidence, 
+            radiologist_name
+        )
         
         report_id = str(uuid_lib.uuid4())
         report_number = f"RPT-{scan.scan_number}"
         
+        # Insert report
         db.execute(text("""
             INSERT INTO reports (
                 id, scan_id, report_number, report_type, report_status,
@@ -490,7 +519,8 @@ async def get_draft_report(
             "recommendations": report_template['recommendations'],
             "report_status": "draft",
             "scan_number": patient.scan_number,
-            "patient_name": patient.patient_name
+            "patient_name": patient.patient_name,
+            "radiologist_name": radiologist_name
         }
         
     except HTTPException:
@@ -500,42 +530,8 @@ async def get_draft_report(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def generate_report_template(scan: Scan, predicted_class: str, confidence: float) -> dict:
-    """Generate report template."""
-    
-    exam_display = capitalize_for_display(scan.examination_type.value, 'examination_type')
-    
-    if predicted_class == "Tuberculosis":
-        return {
-            "title": f"{exam_display} Report - Chest",
-            "indication": "Evaluation for tuberculosis",
-            "technique": f"Chest {exam_display} PA and lateral views obtained",
-            "findings": f"AI-assisted analysis suggests findings consistent with active pulmonary tuberculosis (confidence: {confidence*100:.1f}%). Bilateral upper lobe infiltrates noted. Image quality adequate.",
-            "impression": "Findings consistent with active pulmonary tuberculosis. Recommend sputum culture.",
-            "recommendations": "1. Sputum culture\n2. Respiratory isolation\n3. TB treatment protocol if confirmed"
-        }
-    elif predicted_class in ["adenocarcinoma", "squamous_cell_carcinoma", "large_cell_carcinoma"]:
-        return {
-            "title": f"{exam_display} Report - Chest",
-            "indication": "Evaluation for lung pathology",
-            "technique": f"Chest {exam_display} with standard protocol",
-            "findings": f"AI suggests {predicted_class.replace('_', ' ')} (confidence: {confidence*100:.1f}%). Mass lesion identified.",
-            "impression": f"Findings suspicious for {predicted_class.replace('_', ' ')}. Recommend biopsy.",
-            "recommendations": "1. CT with contrast\n2. PET-CT staging\n3. Tissue biopsy\n4. Oncology consult"
-        }
-    else:
-        return {
-            "title": f"{exam_display} Report - Chest",
-            "indication": "Routine chest imaging",
-            "technique": f"Chest {exam_display} obtained",
-            "findings": f"AI suggests no acute abnormality (confidence: {confidence*100:.1f}%). Lungs clear bilaterally.",
-            "impression": "No acute cardiopulmonary abnormality.",
-            "recommendations": "Continue routine care."
-        }
-
-
 def determine_model(exam_type, body_region):
-    """Determine model - ALL LOWERCASE comparison."""
+    """Determine model."""
     
     if hasattr(exam_type, 'value'):
         exam_val = exam_type.value
@@ -547,7 +543,6 @@ def determine_model(exam_type, body_region):
     else:
         body_val = str(body_region)
     
-    # ALL LOWERCASE
     if exam_val == 'xray' and body_val == 'chest':
         return {'type': 'tb', 'name': 'TB Detection Model'}
     elif exam_val == 'ct' and body_val == 'chest':
@@ -591,7 +586,7 @@ def run_ai_analysis_workflow(scan_id: str, model_type: str):
         else:
             raise Exception(f"Unknown model: {model_type}")
         
-        # Normalize predicted_class to match DiagnosisClass enum
+        # Normalize predicted_class
         normalized_class = normalize_diagnosis(prediction['predicted_class'])
         
         # Save prediction
@@ -611,7 +606,7 @@ def run_ai_analysis_workflow(scan_id: str, model_type: str):
             'scan_id': scan_id,
             'model': f'{model_type.upper()}-ResNet50',
             'version': 'v1.0',
-            'class': normalized_class,  # Use normalized value
+            'class': normalized_class,
             'confidence': prediction['confidence'],
             'probs': Json(prediction['class_probabilities'])
         })
@@ -630,7 +625,6 @@ def run_ai_analysis_workflow(scan_id: str, model_type: str):
                 filename="gradcam_overlay.jpg"
             )
             
-            # Insert with correct schema: ai_prediction_id, scan_image_id, heatmap_path
             db.execute(text("""
                 INSERT INTO gradcam_outputs (
                     ai_prediction_id, 
@@ -654,7 +648,7 @@ def run_ai_analysis_workflow(scan_id: str, model_type: str):
                 'scan_img_id': str(scan_image.id),
                 'path': gradcam_url,
                 'url': gradcam_url,
-                'target_class': normalized_class  # Use normalized value
+                'target_class': normalized_class
             })
         
         # Update scan
@@ -662,7 +656,7 @@ def run_ai_analysis_workflow(scan_id: str, model_type: str):
         scan.ai_analysis_completed_at = datetime.utcnow()
         db.commit()
         
-        logger.info(f"✓ Complete: {scan.scan_number} → {normalized_class}")
+        logger.info(f" Complete: {scan.scan_number} → {normalized_class}")
         
     except Exception as e:
         logger.error(f"Analysis failed: {e}", exc_info=True)
@@ -670,6 +664,7 @@ def run_ai_analysis_workflow(scan_id: str, model_type: str):
         db.commit()
     finally:
         db.close()
+
 
 # FEEDBACK & REPORTS
 @router.post("/scans/{scan_id}/feedback", response_model=FeedbackResponse)
@@ -693,7 +688,7 @@ async def submit_feedback(
         if not radiologist:
             raise HTTPException(status_code=404, detail="Radiologist profile not found")
         
-        # Normalize diagnosis to match DiagnosisClass enum
+        # Normalize diagnosis
         normalized_diagnosis = normalize_diagnosis(feedback.radiologist_diagnosis)
         
         feedback_record = RadiologistFeedback(
@@ -701,7 +696,7 @@ async def submit_feedback(
             radiologist_id=radiologist.id,
             feedback_type=feedback.feedback_type,
             ai_diagnosis=getattr(feedback, 'ai_diagnosis', None),
-            radiologist_diagnosis=normalized_diagnosis,  # Use normalized value
+            radiologist_diagnosis=normalized_diagnosis,
             clinical_notes=feedback.clinical_notes,
             disagreement_reason=feedback.disagreement_reason,
             additional_findings=feedback.additional_findings,
@@ -715,7 +710,7 @@ async def submit_feedback(
         db.commit()
         db.refresh(feedback_record)
         
-        logger.info(f"✓ Diagnosis: {scan.scan_number} → {normalized_diagnosis}")
+        logger.info(f" Diagnosis: {scan.scan_number} → {normalized_diagnosis}")
         
         # Sync to MLOps
         try:
@@ -815,7 +810,7 @@ async def publish_report(
         """), {"report_id": str(report_id)})
         
         db.commit()
-        logger.info(f"✓ Report published: {report_id}")
+        logger.info(f" Report published: {report_id}")
         
         return {"message": "Report published", "report_id": str(report_id)}
         
@@ -823,7 +818,7 @@ async def publish_report(
         logger.error(f"Failed to publish: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
-    
+
 
 @router.post("/reports/{report_id}/unpublish")
 async def unpublish_report(
@@ -861,7 +856,7 @@ async def unpublish_report(
         """), {"report_id": str(report_id)})
         
         db.commit()
-        logger.info(f"📝 Report unpublished: {report_id}")
+        logger.info(f" Report unpublished: {report_id}")
         
         return {
             "message": "Report unpublished successfully",

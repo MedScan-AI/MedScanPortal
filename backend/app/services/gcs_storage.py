@@ -135,7 +135,7 @@ class GCSStorageService:
         Returns:
             BytesIO with image data
         """
-        self._initialize()  # Ensure initialized
+        self._initialize() 
         
         # Extract path
         if gcs_url.startswith('gs://'):

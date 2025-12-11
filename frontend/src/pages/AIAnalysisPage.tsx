@@ -36,6 +36,7 @@ const AIAnalysisPage = () => {
     try {
       const response = await radiologistService.getAIResults(scanId);
       setResults(response.data);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (err) {
       alert('Failed to load AI results');
     } finally {
@@ -72,6 +73,7 @@ const AIAnalysisPage = () => {
       await radiologistService.submitFeedback(scanId, feedbackData);
       alert('Diagnosis submitted successfully!\n\nScan will be synced to MLOps pipeline.');
       navigate(`/radiologist/scan/${scanId}/report`);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (err) {
       alert('Failed to submit diagnosis');
       setSubmitting(false);
@@ -113,7 +115,7 @@ const AIAnalysisPage = () => {
             onClick={() => navigate(`/radiologist/scan/${scanId}`)}
             style={{ borderRadius: '6px', padding: '0.5rem 1.25rem' }}
           >
-            ← Back to Scan
+            Back to Scan
           </button>
           <span className="navbar-brand fw-bold">AI Analysis Results</span>
           <div style={{ width: '120px' }} /> {/* Spacer */}

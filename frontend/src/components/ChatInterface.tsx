@@ -61,6 +61,7 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
 
       addMessage(assistantMessage);
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error('Chat error:', error);
       
@@ -209,7 +210,7 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
                 </span>
               </div>
               <small className="text-muted d-block mt-1" style={{ fontSize: '0.75rem' }}>
-                This may take 1-2 minutes
+                This may take some time
               </small>
             </div>
           </div>
@@ -230,7 +231,7 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
             {[
               "What are TB symptoms?",
               "How is lung cancer treated?",
-              "TB medication side effects?",
+              "What causes Tuberculosis?",
               "What is a chest X-ray?"
             ].map((q, i) => (
               <button

@@ -53,6 +53,7 @@ const ReportEditorPage = () => {
       setFindings(data.findings || '');
       setImpression(data.impression || '');
       setRecommendations(data.recommendations || '');
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (err) {
       alert('Failed to load report');
     } finally {
@@ -81,6 +82,7 @@ const ReportEditorPage = () => {
 
       await radiologistService.updateReport(report.id, reportData);
       alert('Draft saved successfully');
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (err) {
       alert('Failed to save draft');
     } finally {
@@ -93,7 +95,7 @@ const ReportEditorPage = () => {
     
     if (!window.confirm(
       'Publish this report to the patient?\n\n' +
-      '⚠️ Once published:\n' +
+      'Once published:\n' +
       '• The patient will be able to view this report\n' +
       '• You will NOT be able to edit it unless you unpublish it first\n\n' +
       'Continue?'
@@ -109,10 +111,11 @@ const ReportEditorPage = () => {
       // Then publish
       await radiologistService.publishReport(report.id);
       
-      alert('✅ Report published successfully!\n\nThe patient can now view this report.');
+      alert('Report published successfully!\n\nThe patient can now view this report.');
       
       // Refresh to get updated status
       await fetchDraftReport();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (err) {
       alert('Failed to publish report');
     } finally {
@@ -125,9 +128,8 @@ const ReportEditorPage = () => {
     
     if (!window.confirm(
       'Unpublish this report?\n\n' +
-      '⚠️ This will:\n' +
+      ' This will:\n' +
       '• Hide the report from the patient\n' +
-      '• Allow you to make edits\n' +
       '• Require re-publishing for patient to see it again\n\n' +
       'Continue?'
     )) {
@@ -138,10 +140,11 @@ const ReportEditorPage = () => {
     try {
       await radiologistService.unpublishReport(report.id);
       
-      alert('✅ Report unpublished successfully!\n\nYou can now edit the report.');
+      alert('Report unpublished successfully!\n\nYou can now edit the report.');
       
       // Refresh to get updated status
       await fetchDraftReport();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (err) {
       alert('Failed to unpublish report');
     } finally {
@@ -190,7 +193,7 @@ const ReportEditorPage = () => {
                 fontSize: '0.85rem',
                 padding: '0.5rem 1rem'
               }}>
-                📝 Draft
+                 Draft
               </span>
             )}
           </div>
@@ -440,7 +443,7 @@ const ReportEditorPage = () => {
                         fontSize: '0.9rem',
                         padding: '0.5rem 0.85rem'
                       }}>
-                        📝 Draft (Not Visible to Patient)
+                         Draft (Not Visible to Patient)
                       </span>
                     )}
                   </div>

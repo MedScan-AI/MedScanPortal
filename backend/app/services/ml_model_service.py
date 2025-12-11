@@ -63,7 +63,7 @@ class MLModelService:
                 gradcam_bytes = base64.b64decode(gradcam_base64)
                 gradcam_image = BytesIO(gradcam_bytes)
             
-            logger.info(f"✓ TB model prediction: {prediction['predicted_class']} ({prediction['confidence']:.2%})")
+            logger.info(f" TB model prediction: {prediction['predicted_class']} ({prediction['confidence']:.2%})")
             
             return prediction, gradcam_image
             
@@ -122,7 +122,7 @@ class MLModelService:
                 gradcam_bytes = base64.b64decode(gradcam_base64)
                 gradcam_image = BytesIO(gradcam_bytes)
             
-            logger.info(f"✓ LC model prediction: {prediction['predicted_class']} ({prediction['confidence']:.2%})")
+            logger.info(f" LC model prediction: {prediction['predicted_class']} ({prediction['confidence']:.2%})")
             
             return prediction, gradcam_image
             

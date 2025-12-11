@@ -1,7 +1,10 @@
+"""
+Patient API Routes
+"""
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from typing import List
 from uuid import UUID
 from app.core.database import get_db
 from app.core.security import require_role

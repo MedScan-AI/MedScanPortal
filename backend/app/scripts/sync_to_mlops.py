@@ -145,7 +145,7 @@ class MLOpsSyncService:
                 self.db.commit()
                 
                 logger.info(
-                    f"✓ Synced {scan.scan_number} ({diagnosis}): "
+                    f" Synced {scan.scan_number} ({diagnosis}): "
                     f"{len(mlops_paths)} images"
                 )
                 return True
@@ -230,7 +230,7 @@ class MLOpsSyncService:
         temp_path = f"/tmp/{csv_filename}"
         df.to_csv(temp_path, index=False)
         
-        logger.info(f"✓ Generated CSV: {len(rows)} rows")
+        logger.info(f" Generated CSV: {len(rows)} rows")
         return temp_path
     
     def upload_metadata_to_gcs(self, csv_path: str, diagnosis: str) -> str:
@@ -252,7 +252,7 @@ class MLOpsSyncService:
         blob.upload_from_filename(csv_path)
         
         gcs_url = f"gs://{gcs_storage.bucket_name}/{gcs_path}"
-        logger.info(f"✓ Uploaded metadata: {gcs_url}")
+        logger.info(f" Uploaded metadata: {gcs_url}")
         
         return gcs_url
     
@@ -266,10 +266,8 @@ class MLOpsSyncService:
         Returns:
             Statistics dictionary
         """
-        logger.info("="*60)
         logger.info("MLOPS SYNC STARTED")
         logger.info(f"Syncing diagnosed scans from last {days_back} day(s)")
-        logger.info("="*60)
         
         stats = {
             'total_scans': 0,
@@ -285,7 +283,7 @@ class MLOpsSyncService:
             stats['total_scans'] = len(unsynced_scans)
             
             if not unsynced_scans:
-                logger.info("✓ No new scans to sync")
+                logger.info(" No new scans to sync")
                 return stats
             
             # Group by diagnosis for metadata CSV
@@ -324,9 +322,9 @@ class MLOpsSyncService:
                     self.upload_metadata_to_gcs(csv_path, 'lung_cancer')
                     os.remove(csv_path)
             
-            logger.info("="*60)
+            
             logger.info("MLOPS SYNC COMPLETED")
-            logger.info("="*60)
+            
             
             return stats
             
@@ -368,15 +366,12 @@ def main():
         stats = sync_service.run_sync(days_back=args.days)
         
         # Print summary
-        print("\n" + "="*60)
         print("SYNC SUMMARY")
-        print("="*60)
         print(f"Total scans found:        {stats['total_scans']}")
         print(f"TB scans synced:          {stats['synced_tb']}")
         print(f"Lung cancer scans synced: {stats['synced_lung_cancer']}")
         print(f"Skipped (normal/other):   {stats['skipped']}")
         print(f"Failed:                   {stats['failed']}")
-        print("="*60)
         
         # Exit code
         if stats['failed'] > 0:
