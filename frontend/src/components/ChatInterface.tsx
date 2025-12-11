@@ -7,7 +7,10 @@ interface ChatInterfaceProps {
   apiBaseUrl?: string;
 }
 
-const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfaceProps) => {
+const ChatInterface = ({ apiBaseUrl }: ChatInterfaceProps) => {
+  // Use environment variable if apiBaseUrl prop not provided
+  const baseUrl = apiBaseUrl || import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+  
   const { messages, addMessage } = useChat();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -41,7 +44,7 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
           pollCount++;
 
           const response = await axios.get(
-            `${apiBaseUrl}/rag/chat/status/${jobId}`,
+            `${baseUrl}/rag/chat/status/${jobId}`,
             {
               headers: { 'Authorization': `Bearer ${token}` },
               timeout: 10000
@@ -109,7 +112,7 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
       
       // Start async job
       const startResponse = await axios.post(
-        `${apiBaseUrl}/rag/chat/start`,
+        `${baseUrl}/rag/chat/start`,
         {
           message: userMessage.content,
           conversation_history: messages.slice(-10)
@@ -285,6 +288,9 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
                   AI is analyzing your question...
                 </span>
               </div>
+              <small className="text-muted d-block mt-1" style={{ fontSize: '0.75rem' }}>
+                This may take 1-5 minutes
+              </small>
             </div>
           </div>
         )}
