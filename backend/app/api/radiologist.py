@@ -823,6 +823,58 @@ async def publish_report(
         logger.error(f"Failed to publish: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    
+
+@router.post("/reports/{report_id}/unpublish")
+async def unpublish_report(
+    report_id: UUID,
+    current_user: User = Depends(require_role(["radiologist"])),
+    db: Session = Depends(get_db)
+):
+    """Unpublish report - makes it invisible to patient and editable again."""
+    try:
+        # Check if report exists
+        result = db.execute(text("""
+            SELECT id, report_status 
+            FROM reports 
+            WHERE id = :report_id
+        """), {"report_id": str(report_id)})
+        
+        report = result.fetchone()
+        
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        if report.report_status != 'published':
+            raise HTTPException(
+                status_code=400, 
+                detail="Report is not published. Only published reports can be unpublished."
+            )
+        
+        # Update report status to draft
+        db.execute(text("""
+            UPDATE reports 
+            SET report_status = 'draft', 
+                published_at = NULL, 
+                updated_at = NOW()
+            WHERE id = :report_id
+        """), {"report_id": str(report_id)})
+        
+        db.commit()
+        logger.info(f"📝 Report unpublished: {report_id}")
+        
+        return {
+            "message": "Report unpublished successfully",
+            "report_id": str(report_id),
+            "status": "draft"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to unpublish: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/profile")

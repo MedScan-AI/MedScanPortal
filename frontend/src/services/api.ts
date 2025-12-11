@@ -98,14 +98,14 @@ export const radiologistService = {
   // AI Analysis
   startAIAnalysis: (scanId: string) => api.post(`/radiologist/scans/${scanId}/analyze`),
   
-  // AI Results - REAL endpoint
+  // AI Results
   getAIResults: (scanId: string) => api.get(`/radiologist/scans/${scanId}/ai-results`),
   
   // Feedback & Diagnosis
   submitFeedback: (scanId: string, feedbackData: FeedbackData) => 
     api.post(`/radiologist/scans/${scanId}/feedback`, feedbackData),
   
-  // Reports - REAL endpoints
+  // Reports
   getDraftReport: (scanId: string) => api.get(`/radiologist/scans/${scanId}/draft-report`),
   
   updateReport: (reportId: string, reportData: ReportData) => 

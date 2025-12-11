@@ -18,7 +18,6 @@ interface ScanDetail {
   clinical_notes?: string;
   images?: Array<{
     url: string;
-    gcs_path?: string;
     size: number;
     format?: string;
     order?: number;
@@ -44,13 +43,9 @@ const ScanDetailPage = () => {
     setError('');
     
     try {
-      console.log('Fetching scan:', scanId);
       const response = await radiologistService.getScanById(scanId);
-      console.log('Scan response:', response.data);
       setScan(response.data);
-      
     } catch (err: any) {
-      console.error('Error fetching scan:', err);
       setError(err.response?.data?.detail || 'Failed to load scan details');
     } finally {
       setLoading(false);
@@ -62,19 +57,14 @@ const ScanDetailPage = () => {
     
     setStartingAnalysis(true);
     try {
-      console.log('Starting AI analysis...');
       await radiologistService.startAIAnalysis(scanId);
+      alert('AI analysis started. This will take 30-60 seconds.\n\nRefresh the page to see results.');
       
-      alert('✓ AI analysis started! This will take 30-60 seconds...\n\nRefresh the page in a minute to see results.');
-      
-      // Refresh to see updated status
       setTimeout(() => {
         fetchScanDetails();
         setStartingAnalysis(false);
       }, 2000);
-      
     } catch (err: any) {
-      console.error('Error starting analysis:', err);
       alert(err.response?.data?.detail || 'Failed to start AI analysis');
       setStartingAnalysis(false);
     }
@@ -85,32 +75,20 @@ const ScanDetailPage = () => {
       <div className="container mt-5">
         <div className="text-center p-5">
           <div className="spinner-border text-primary" />
-          <p className="mt-3">Loading scan details...</p>
+          <p className="mt-3 text-muted">Loading scan details...</p>
         </div>
       </div>
     );
   }
 
-  if (error) {
+  if (error || !scan) {
     return (
       <div className="container mt-5">
         <div className="alert alert-danger">
-          <h5>Error</h5>
-          <p>{error}</p>
+          {error || 'Scan not found'}
         </div>
         <button className="btn btn-primary" onClick={() => navigate('/radiologist')}>
-          ← Back to Queue
-        </button>
-      </div>
-    );
-  }
-
-  if (!scan) {
-    return (
-      <div className="container mt-5">
-        <div className="alert alert-warning">Scan not found</div>
-        <button className="btn btn-primary" onClick={() => navigate('/radiologist')}>
-          ← Back to Queue
+          Back to Queue
         </button>
       </div>
     );
@@ -120,7 +98,7 @@ const ScanDetailPage = () => {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f7fa' }}>
-      {/* Header */}
+      {/* Navigation */}
       <nav className="navbar navbar-dark shadow-sm" style={{
         background: 'linear-gradient(135deg, #0f4c81 0%, #1a5f8a 100%)',
         borderBottom: '3px solid #0a3557'
@@ -146,44 +124,43 @@ const ScanDetailPage = () => {
 
       <div className="container-fluid px-4 py-4">
         <div className="row g-4">
-          {/* Left Column */}
+          {/* Left Column - Patient Info */}
           <div className="col-lg-4">
-            {/* Patient Info */}
             <div className="card border-0 shadow-sm mb-3" style={{ borderRadius: '12px' }}>
               <div className="card-header text-white border-0" style={{
                 background: 'linear-gradient(135deg, #0f4c81 0%, #1a5f8a 100%)',
                 borderRadius: '12px 12px 0 0',
                 padding: '1rem 1.25rem'
               }}>
-                <h5 className="mb-0 fw-bold">👤 Patient Information</h5>
+                <h6 className="mb-0 fw-bold">Patient Information</h6>
               </div>
               <div className="card-body p-4">
                 <div className="mb-3">
-                  <label className="text-muted small fw-semibold mb-1">Patient Name</label>
-                  <p className="mb-0 fw-bold" style={{ fontSize: '1.05rem' }}>{scan.patient_name}</p>
+                  <small className="text-muted fw-semibold">Patient Name</small>
+                  <p className="mb-0 fw-bold">{scan.patient_name}</p>
                 </div>
                 <div className="mb-3">
-                  <label className="text-muted small fw-semibold mb-1">Patient ID</label>
+                  <small className="text-muted fw-semibold">Patient ID</small>
                   <p className="mb-0">{scan.patient_id}</p>
                 </div>
                 <div className="mb-3">
-                  <label className="text-muted small fw-semibold mb-1">Scan Number</label>
+                  <small className="text-muted fw-semibold">Scan Number</small>
                   <p className="mb-0" style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>
                     {scan.scan_number}
                   </p>
                 </div>
                 <div className="row mb-3">
                   <div className="col-6">
-                    <label className="text-muted small fw-semibold mb-1">Exam Type</label>
+                    <small className="text-muted fw-semibold">Exam Type</small>
                     <p className="mb-0">{scan.examination_type}</p>
                   </div>
                   <div className="col-6">
-                    <label className="text-muted small fw-semibold mb-1">Region</label>
+                    <small className="text-muted fw-semibold">Region</small>
                     <p className="mb-0">{scan.body_region}</p>
                   </div>
                 </div>
                 <div className="mb-3">
-                  <label className="text-muted small fw-semibold mb-1">Scan Date</label>
+                  <small className="text-muted fw-semibold">Scan Date</small>
                   <p className="mb-0">
                     {new Date(scan.scan_date).toLocaleDateString('en-US', {
                       year: 'numeric',
@@ -193,7 +170,7 @@ const ScanDetailPage = () => {
                   </p>
                 </div>
                 <div>
-                  <label className="text-muted small fw-semibold mb-1">Status</label>
+                  <small className="text-muted fw-semibold">Status</small>
                   <p className="mb-0">
                     <span className="badge bg-secondary px-3 py-2">
                       {scan.status.replace('_', ' ').toUpperCase()}
@@ -205,54 +182,48 @@ const ScanDetailPage = () => {
 
             {/* Clinical Info */}
             <div className="card border-0 shadow-sm" style={{ borderRadius: '12px' }}>
-              <div className="card-header bg-warning border-0" style={{
+              <div className="card-header bg-light border-0" style={{
                 borderRadius: '12px 12px 0 0',
                 padding: '1rem 1.25rem'
               }}>
-                <h6 className="mb-0 fw-bold">⚕️ Clinical Information</h6>
+                <h6 className="mb-0 fw-bold">Clinical Information</h6>
               </div>
               <div className="card-body p-4">
-                <div className="mb-3">
-                  <label className="text-muted small fw-semibold mb-2">Symptoms</label>
-                  {scan.presenting_symptoms && scan.presenting_symptoms.length > 0 ? (
-                    <ul className="mb-0 ps-3">
+                {scan.presenting_symptoms && scan.presenting_symptoms.length > 0 && (
+                  <div className="mb-3">
+                    <small className="text-muted fw-semibold">Symptoms</small>
+                    <ul className="mb-0 ps-3 mt-1">
                       {scan.presenting_symptoms.map((s, i) => (
-                        <li key={i}>{s}</li>
+                        <li key={i}><small>{s}</small></li>
                       ))}
                     </ul>
-                  ) : (
-                    <p className="text-muted small mb-0">None</p>
-                  )}
-                </div>
-                <div className="mb-3">
-                  <label className="text-muted small fw-semibold mb-2">Medications</label>
-                  {scan.current_medications && scan.current_medications.length > 0 ? (
-                    <ul className="mb-0 ps-3">
+                  </div>
+                )}
+                {scan.current_medications && scan.current_medications.length > 0 && (
+                  <div className="mb-3">
+                    <small className="text-muted fw-semibold">Medications</small>
+                    <ul className="mb-0 ps-3 mt-1">
                       {scan.current_medications.map((m, i) => (
-                        <li key={i}>{m}</li>
+                        <li key={i}><small>{m}</small></li>
                       ))}
                     </ul>
-                  ) : (
-                    <p className="text-muted small mb-0">None</p>
-                  )}
-                </div>
-                <div>
-                  <label className="text-muted small fw-semibold mb-2">Surgeries</label>
-                  {scan.previous_surgeries && scan.previous_surgeries.length > 0 ? (
-                    <ul className="mb-0 ps-3">
+                  </div>
+                )}
+                {scan.previous_surgeries && scan.previous_surgeries.length > 0 && (
+                  <div>
+                    <small className="text-muted fw-semibold">Previous Surgeries</small>
+                    <ul className="mb-0 ps-3 mt-1">
                       {scan.previous_surgeries.map((s, i) => (
-                        <li key={i}>{s}</li>
+                        <li key={i}><small>{s}</small></li>
                       ))}
                     </ul>
-                  ) : (
-                    <p className="text-muted small mb-0">None</p>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Right Column */}
+          {/* Right Column - Images & Actions */}
           <div className="col-lg-8">
             {/* Images */}
             <div className="card border-0 shadow-sm mb-3" style={{ borderRadius: '12px' }}>
@@ -262,16 +233,16 @@ const ScanDetailPage = () => {
                 borderRadius: '12px 12px 0 0',
                 padding: '1rem 1.25rem'
               }}>
-                <h5 className="mb-0 fw-bold">🔬 Scan Images</h5>
+                <h6 className="mb-0 fw-bold">Scan Images</h6>
               </div>
               <div className="card-body p-4">
                 {images.length === 0 ? (
-                  <div className="alert alert-warning">No images uploaded</div>
+                  <div className="alert alert-warning mb-0">No images uploaded</div>
                 ) : (
                   <div className="row g-3">
                     {images.map((image, idx) => (
                       <div key={idx} className="col-md-6">
-                        <div className="card">
+                        <div className="card border">
                           <img 
                             src={image.url} 
                             alt={`Scan ${image.order || idx + 1}`}
@@ -282,11 +253,10 @@ const ScanDetailPage = () => {
                               backgroundColor: '#000'
                             }}
                             onError={(e) => {
-                              console.error('Image load error:', image.url);
                               e.currentTarget.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>';
                             }}
                           />
-                          <div className="card-body">
+                          <div className="card-body py-2">
                             <small className="text-muted">
                               Image {image.order || idx + 1} • 
                               {image.format ? image.format.toUpperCase() : 'JPG'} • 
@@ -305,25 +275,21 @@ const ScanDetailPage = () => {
             {scan.status === 'pending' && images.length > 0 && (
               <div className="card border-0 shadow-sm" style={{ 
                 borderRadius: '12px',
-                background: 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)',
+                background: '#e3f2fd',
                 borderLeft: '4px solid #0f4c81'
               }}>
-                <div className="card-body text-center p-5">
-                  <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🤖</div>
-                  <h5 className="fw-bold mb-3" style={{ color: '#0f4c81' }}>Ready for AI Analysis</h5>
-                  <p className="text-muted mb-4">
+                <div className="card-body text-center p-4">
+                  <h6 className="fw-bold mb-3" style={{ color: '#0f4c81' }}>
+                    Ready for AI Analysis
+                  </h6>
+                  <p className="text-muted mb-4 small">
                     Start AI-assisted analysis to get preliminary diagnosis and visualization
                   </p>
                   <button 
-                    className="btn btn-lg text-white fw-semibold"
+                    className="btn btn-primary btn-lg"
                     onClick={handleStartAnalysis}
                     disabled={startingAnalysis}
-                    style={{
-                      background: 'linear-gradient(135deg, #0f4c81 0%, #1a5f8a 100%)',
-                      border: 'none',
-                      borderRadius: '8px',
-                      padding: '0.875rem 2.5rem'
-                    }}
+                    style={{ borderRadius: '8px', padding: '0.75rem 2rem', fontWeight: 500 }}
                   >
                     {startingAnalysis ? (
                       <>
@@ -331,7 +297,7 @@ const ScanDetailPage = () => {
                         Starting Analysis...
                       </>
                     ) : (
-                      '🚀 Start AI Analysis'
+                      'Start AI Analysis'
                     )}
                   </button>
                 </div>
@@ -343,8 +309,8 @@ const ScanDetailPage = () => {
                 <div className="d-flex align-items-center">
                   <div className="spinner-border spinner-border-sm me-3" />
                   <div>
-                    <strong>AI Analysis in Progress...</strong>
-                    <p className="mb-0 small">This may take 30-60 seconds. Refresh the page to see results.</p>
+                    <strong>AI Analysis in Progress</strong>
+                    <p className="mb-0 small">This may take 30-60 seconds. Refresh to see results.</p>
                   </div>
                 </div>
               </div>
@@ -353,30 +319,31 @@ const ScanDetailPage = () => {
             {scan.status === 'ai_analyzed' && (
               <div className="card border-0 shadow-sm" style={{ 
                 borderRadius: '12px',
-                background: 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)',
+                background: '#e8f5e9',
                 borderLeft: '4px solid #28a745'
               }}>
                 <div className="card-body text-center p-4">
-                  <h5 className="fw-bold mb-3" style={{ color: '#28a745' }}>
-                    ✓ AI Analysis Complete
-                  </h5>
+                  <h6 className="fw-bold mb-3" style={{ color: '#28a745' }}>
+                    AI Analysis Complete
+                  </h6>
                   <button 
                     className="btn btn-success btn-lg"
                     onClick={() => navigate(`/radiologist/scan/${scanId}/analysis`)}
-                    style={{ borderRadius: '8px', padding: '0.75rem 2rem' }}
+                    style={{ borderRadius: '8px', padding: '0.75rem 2rem', fontWeight: 500 }}
                   >
-                    View AI Results & Submit Diagnosis →
+                    View Results & Submit Diagnosis →
                   </button>
                 </div>
               </div>
             )}
 
             {scan.status === 'completed' && (
-              <div className="alert alert-primary">
-                <strong>✓ Diagnosis Complete</strong>
+              <div className="alert alert-primary d-flex align-items-center justify-content-between">
+                <strong>Diagnosis Complete</strong>
                 <button 
-                  className="btn btn-primary btn-sm ms-3"
+                  className="btn btn-primary btn-sm"
                   onClick={() => navigate(`/radiologist/scan/${scanId}/report`)}
+                  style={{ fontWeight: 500 }}
                 >
                   View Report →
                 </button>

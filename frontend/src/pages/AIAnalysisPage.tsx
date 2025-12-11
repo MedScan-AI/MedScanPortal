@@ -18,7 +18,6 @@ const AIAnalysisPage = () => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   
-  // Feedback form state
   const [decision, setDecision] = useState<'accept' | 'override'>('accept');
   const [overrideDiagnosis, setOverrideDiagnosis] = useState('');
   const [clinicalNotes, setClinicalNotes] = useState('');
@@ -38,7 +37,6 @@ const AIAnalysisPage = () => {
       const response = await radiologistService.getAIResults(scanId);
       setResults(response.data);
     } catch (err) {
-      console.error('Error fetching AI results:', err);
       alert('Failed to load AI results');
     } finally {
       setLoading(false);
@@ -48,7 +46,6 @@ const AIAnalysisPage = () => {
   const handleSubmitFeedback = async () => {
     if (!scanId || !results) return;
     
-    // Validation
     if (decision === 'override' && !overrideDiagnosis) {
       alert('Please select a diagnosis for override');
       return;
@@ -68,19 +65,14 @@ const AIAnalysisPage = () => {
         ai_diagnosis: results.predicted_class,
         clinical_notes: clinicalNotes,
         disagreement_reason: decision === 'override' ? disagreementReason : undefined,
-        radiologist_confidence: confidence / 10, // Convert 1-10 to 0.1-1.0
+        radiologist_confidence: confidence / 10,
         image_quality_rating: imageQuality,
       };
 
       await radiologistService.submitFeedback(scanId, feedbackData);
-      
-      alert('✓ Diagnosis submitted successfully!\n\nScan will be synced to MLOps pipeline for model training.');
-      
-      // Navigate to report page
+      alert('Diagnosis submitted successfully!\n\nScan will be synced to MLOps pipeline.');
       navigate(`/radiologist/scan/${scanId}/report`);
-      
     } catch (err) {
-      console.error('Error submitting feedback:', err);
       alert('Failed to submit diagnosis');
       setSubmitting(false);
     }
@@ -90,9 +82,8 @@ const AIAnalysisPage = () => {
     return (
       <div className="container mt-5">
         <div className="text-center p-5">
-          <div className="spinner-border spinner-border-lg" />
-          <p className="mt-3">Analyzing scan with AI...</p>
-          <small className="text-muted">This may take 10-30 seconds</small>
+          <div className="spinner-border text-primary" />
+          <p className="mt-3 text-muted">Loading AI results...</p>
         </div>
       </div>
     );
@@ -110,36 +101,43 @@ const AIAnalysisPage = () => {
   }
 
   return (
-    <div>
-      {/* Header */}
-      <nav className="navbar navbar-dark bg-dark">
-        <div className="container-fluid">
+    <div style={{ minHeight: '100vh', background: '#f5f7fa' }}>
+      {/* Navigation */}
+      <nav className="navbar navbar-dark shadow-sm" style={{
+        background: 'linear-gradient(135deg, #0f4c81 0%, #1a5f8a 100%)',
+        borderBottom: '3px solid #0a3557'
+      }}>
+        <div className="container-fluid px-4">
           <button 
             className="btn btn-outline-light btn-sm"
             onClick={() => navigate(`/radiologist/scan/${scanId}`)}
+            style={{ borderRadius: '6px', padding: '0.5rem 1.25rem' }}
           >
-            ← Back to Scan Details
+            ← Back to Scan
           </button>
-          <span className="navbar-brand">AI Analysis Results</span>
-          <span />
+          <span className="navbar-brand fw-bold">AI Analysis Results</span>
+          <div style={{ width: '120px' }} /> {/* Spacer */}
         </div>
       </nav>
 
-      <div className="container-fluid mt-4">
-        <div className="row">
-          {/* AI Results Column */}
+      <div className="container-fluid px-4 py-4">
+        <div className="row g-4">
+          {/* AI Results */}
           <div className="col-lg-6">
-            <div className="card mb-3">
-              <div className="card-header bg-primary text-white">
-                <h5 className="mb-0">AI Prediction</h5>
+            <div className="card border-0 shadow-sm mb-3" style={{ borderRadius: '12px' }}>
+              <div className="card-header bg-primary text-white border-0" style={{
+                borderRadius: '12px 12px 0 0',
+                padding: '1rem 1.25rem'
+              }}>
+                <h6 className="mb-0 fw-bold">AI Prediction</h6>
               </div>
-              <div className="card-body">
+              <div className="card-body p-4">
                 <div className="text-center mb-4">
-                  <h2 className="display-4">{results.predicted_class}</h2>
-                  <p className="lead">
+                  <h2 className="display-6 fw-bold mb-2">{results.predicted_class}</h2>
+                  <p className="lead mb-3">
                     Confidence: <strong>{(results.confidence_score * 100).toFixed(1)}%</strong>
                   </p>
-                  <div className="progress" style={{ height: '30px' }}>
+                  <div className="progress" style={{ height: '24px' }}>
                     <div 
                       className="progress-bar bg-success" 
                       style={{ width: `${results.confidence_score * 100}%` }}
@@ -149,64 +147,63 @@ const AIAnalysisPage = () => {
                   </div>
                 </div>
 
-                <h6>Class Probabilities:</h6>
-                <table className="table table-sm">
-                  <tbody>
-                    {Object.entries(results.class_probabilities).map(([className, prob]) => (
-                      <tr key={className}>
-                        <td>{className}</td>
-                        <td>
-                          <div className="progress">
-                            <div 
-                              className="progress-bar" 
-                              style={{ width: `${prob * 100}%` }}
-                            >
-                              {(prob * 100).toFixed(1)}%
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <h6 className="fw-semibold mb-3">Class Probabilities</h6>
+                <div className="small">
+                  {Object.entries(results.class_probabilities).map(([className, prob]) => (
+                    <div key={className} className="mb-2">
+                      <div className="d-flex justify-content-between mb-1">
+                        <span>{className}</span>
+                        <span className="fw-semibold">{(prob * 100).toFixed(1)}%</span>
+                      </div>
+                      <div className="progress" style={{ height: '8px' }}>
+                        <div 
+                          className="progress-bar bg-info" 
+                          style={{ width: `${prob * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 
-            {/* Grad-CAM Visualization */}
-            <div className="card mb-3">
-              <div className="card-header bg-success text-white">
-                <h5 className="mb-0">Grad-CAM Visualization</h5>
+            {/* GradCAM */}
+            {results.gradcam_url && (
+              <div className="card border-0 shadow-sm" style={{ borderRadius: '12px' }}>
+                <div className="card-header bg-success text-white border-0" style={{
+                  borderRadius: '12px 12px 0 0',
+                  padding: '1rem 1.25rem'
+                }}>
+                  <h6 className="mb-0 fw-bold">Activation Map</h6>
+                </div>
+                <div className="card-body p-4">
+                  <img 
+                    src={results.gradcam_url} 
+                    alt="Grad-CAM Heatmap"
+                    className="img-fluid rounded"
+                    style={{ backgroundColor: '#000' }}
+                  />
+                  <p className="text-muted small mt-2 mb-0">
+                    Heatmap highlights regions that influenced the AI decision
+                  </p>
+                </div>
               </div>
-              <div className="card-body">
-                {results.gradcam_url ? (
-                  <div>
-                    <img 
-                      src={results.gradcam_url} 
-                      alt="Grad-CAM Heatmap"
-                      className="img-fluid rounded"
-                      style={{ backgroundColor: '#000' }}
-                    />
-                    <p className="text-muted small mt-2">
-                      Heatmap shows regions that influenced the AI's decision
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-muted">Grad-CAM visualization not available</p>
-                )}
-              </div>
-            </div>
+            )}
           </div>
 
-          {/* Radiologist Decision Column */}
+          {/* Radiologist Decision */}
           <div className="col-lg-6">
-            <div className="card border-warning">
-              <div className="card-header bg-warning">
-                <h5 className="mb-0">Your Diagnosis</h5>
+            <div className="card border-0 shadow-sm" style={{ borderRadius: '12px' }}>
+              <div className="card-header bg-warning border-0" style={{
+                borderRadius: '12px 12px 0 0',
+                padding: '1rem 1.25rem'
+              }}>
+                <h6 className="mb-0 fw-bold">Your Diagnosis</h6>
               </div>
-              <div className="card-body">
-                {/* Accept or Override */}
+              <div className="card-body p-4">
+                {/* Decision */}
                 <div className="mb-4">
-                  <label className="form-label fw-bold">Decision:</label>
+                  <label className="form-label fw-semibold small">Decision</label>
                   <div className="btn-group w-100" role="group">
                     <input 
                       type="radio" 
@@ -217,7 +214,7 @@ const AIAnalysisPage = () => {
                       onChange={() => setDecision('accept')}
                     />
                     <label className="btn btn-outline-success" htmlFor="accept">
-                      ✓ Accept AI Diagnosis
+                      Accept AI
                     </label>
 
                     <input 
@@ -229,20 +226,19 @@ const AIAnalysisPage = () => {
                       onChange={() => setDecision('override')}
                     />
                     <label className="btn btn-outline-warning" htmlFor="override">
-                      ⚠ Override AI Diagnosis
+                      Override
                     </label>
                   </div>
                 </div>
 
-                {/* Override Diagnosis Selection */}
+                {/* Override Options */}
                 {decision === 'override' && (
-                  <div className="mb-3 alert alert-warning">
-                    <label className="form-label fw-bold">Your Diagnosis:</label>
+                  <div className="mb-3 p-3 bg-light rounded">
+                    <label className="form-label fw-semibold small">Your Diagnosis</label>
                     <select 
-                      className="form-select"
+                      className="form-select mb-3"
                       value={overrideDiagnosis}
                       onChange={(e) => setOverrideDiagnosis(e.target.value)}
-                      required
                     >
                       <option value="">Select diagnosis...</option>
                       <option value="Normal">Normal</option>
@@ -252,93 +248,73 @@ const AIAnalysisPage = () => {
                       <option value="Inconclusive">Inconclusive</option>
                     </select>
 
-                    <label className="form-label fw-bold mt-3">Reason for Override:</label>
+                    <label className="form-label fw-semibold small">Reason for Override</label>
                     <textarea 
                       className="form-control"
                       rows={3}
                       value={disagreementReason}
                       onChange={(e) => setDisagreementReason(e.target.value)}
                       placeholder="Explain why you disagree with AI prediction..."
-                      required
                     />
                   </div>
                 )}
 
                 {/* Clinical Notes */}
                 <div className="mb-3">
-                  <label className="form-label fw-bold">Clinical Notes:</label>
+                  <label className="form-label fw-semibold small">Clinical Notes</label>
                   <textarea 
                     className="form-control"
                     rows={4}
                     value={clinicalNotes}
                     onChange={(e) => setClinicalNotes(e.target.value)}
-                    placeholder="Add your clinical observations, findings, or recommendations..."
+                    placeholder="Add your clinical observations..."
                   />
                 </div>
 
-                {/* Confidence Rating */}
-                <div className="mb-3">
-                  <label className="form-label fw-bold">
-                    Your Confidence: {confidence}/10
-                  </label>
-                  <input 
-                    type="range" 
-                    className="form-range"
-                    min="1" 
-                    max="10" 
-                    value={confidence}
-                    onChange={(e) => setConfidence(Number(e.target.value))}
-                  />
-                  <div className="d-flex justify-content-between">
-                    <small>Low</small>
-                    <small>High</small>
+                {/* Ratings */}
+                <div className="row mb-3">
+                  <div className="col-6">
+                    <label className="form-label fw-semibold small">
+                      Confidence: {confidence}/10
+                    </label>
+                    <input 
+                      type="range" 
+                      className="form-range"
+                      min="1" 
+                      max="10" 
+                      value={confidence}
+                      onChange={(e) => setConfidence(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="col-6">
+                    <label className="form-label fw-semibold small">
+                      Image Quality: {imageQuality}/5
+                    </label>
+                    <input 
+                      type="range" 
+                      className="form-range"
+                      min="1" 
+                      max="5" 
+                      value={imageQuality}
+                      onChange={(e) => setImageQuality(Number(e.target.value))}
+                    />
                   </div>
                 </div>
 
-                {/* Image Quality */}
-                <div className="mb-4">
-                  <label className="form-label fw-bold">
-                    Image Quality: {imageQuality}/5
-                  </label>
-                  <input 
-                    type="range" 
-                    className="form-range"
-                    min="1" 
-                    max="5" 
-                    value={imageQuality}
-                    onChange={(e) => setImageQuality(Number(e.target.value))}
-                  />
-                  <div className="d-flex justify-content-between">
-                    <small>Poor</small>
-                    <small>Excellent</small>
-                  </div>
-                </div>
-
-                {/* Submit Button */}
+                {/* Submit */}
                 <div className="d-grid">
                   <button 
                     className="btn btn-lg btn-primary"
                     onClick={handleSubmitFeedback}
                     disabled={submitting}
+                    style={{ borderRadius: '8px', fontWeight: 500 }}
                   >
-                    {submitting ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm me-2" />
-                        Submitting...
-                      </>
-                    ) : (
-                      '✓ Submit Diagnosis & Continue to Report'
-                    )}
+                    {submitting ? 'Submitting...' : 'Submit Diagnosis'}
                   </button>
                 </div>
 
                 <p className="text-muted small mt-3 mb-0">
-                  <strong>Note:</strong> Your feedback will be used to improve the AI model. 
-                  {decision === 'accept' ? (
-                    ' Accepting AI diagnosis helps validate model performance.'
-                  ) : (
-                    ' Overrides help the model learn from its mistakes.'
-                  )}
+                  Your feedback will be used to improve the AI model.
                 </p>
               </div>
             </div>

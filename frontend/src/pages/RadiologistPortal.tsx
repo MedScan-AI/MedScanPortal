@@ -13,6 +13,7 @@ interface Scan {
   urgency_level: string;
   status: string;
   scan_date: string;
+  created_at: string;
 }
 
 interface RadiologistProfile {
@@ -30,22 +31,25 @@ interface RadiologistProfile {
 const RadiologistPortal = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [activeView, setActiveView] = useState('pending');
-  const [pendingScans, setPendingScans] = useState<Scan[]>([]);
-  const [completedScans, setCompletedScans] = useState<Scan[]>([]);
+  const [activeTab, setActiveTab] = useState<'pending' | 'completed' | 'profile'>('pending');
+  const [scans, setScans] = useState<Scan[]>([]);
   const [profile, setProfile] = useState<RadiologistProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchScans = async () => {
+  useEffect(() => {
+    fetchData();
+  }, [activeTab]);
+
+  const fetchData = async () => {
     setLoading(true);
     try {
-      if (activeView === 'pending') {
+      if (activeTab === 'pending') {
         const response = await radiologistService.getPendingScans();
-        setPendingScans(response.data);
-      } else if (activeView === 'completed') {
+        setScans(response.data);
+      } else if (activeTab === 'completed') {
         const response = await radiologistService.getCompletedScans();
-        setCompletedScans(response.data);
-      } else if (activeView === 'profile') {
+        setScans(response.data);
+      } else if (activeTab === 'profile') {
         const response = await radiologistService.getProfile();
         setProfile(response.data);
       }
@@ -56,433 +60,386 @@ const RadiologistPortal = () => {
     }
   };
 
-  useEffect(() => {
-    fetchScans();
-  }, [activeView]);
-
-  const handleScanClick = (scanId: string) => {
-    navigate(`/radiologist/scan/${scanId}`);
-  };
-
   const handleLogout = () => {
     logout();
     navigate('/login');
   };
 
-  const scans = activeView === 'pending' ? pendingScans : completedScans;
-
-  const getUrgencyStyle = (urgency: string) => {
-    const styles: Record<string, { bg: string; color: string }> = {
-      'Emergent': { bg: '#dc3545', color: 'white' },
-      'Urgent': { bg: '#ffc107', color: '#000' },
-      'Routine': { bg: '#28a745', color: 'white' }
+  const getStatusBadge = (status: string) => {
+    const statusConfig: Record<string, { bg: string; text: string }> = {
+      pending: { bg: '#ffc107', text: '#000' },
+      in_progress: { bg: '#17a2b8', text: '#fff' },
+      ai_analyzed: { bg: '#28a745', text: '#fff' },
+      completed: { bg: '#0f4c81', text: '#fff' }
     };
-    return styles[urgency] || styles.Routine;
+    
+    const config = statusConfig[status] || { bg: '#6c757d', text: '#fff' };
+    
+    return (
+      <span style={{
+        background: config.bg,
+        color: config.text,
+        padding: '0.35rem 0.75rem',
+        borderRadius: '20px',
+        fontSize: '0.75rem',
+        fontWeight: 600,
+        textTransform: 'uppercase',
+        letterSpacing: '0.5px'
+      }}>
+        {status.replace('_', ' ')}
+      </span>
+    );
   };
 
-  const getStatusStyle = (status: string) => {
-    const styles: Record<string, { bg: string; color: string }> = {
-      'pending': { bg: '#6c757d', color: 'white' },
-      'in_progress': { bg: '#17a2b8', color: 'white' },
-      'ai_analyzed': { bg: '#0f4c81', color: 'white' },
-      'completed': { bg: '#28a745', color: 'white' }
+  const getUrgencyBadge = (urgency: string) => {
+    const urgencyConfig: Record<string, string> = {
+      'Routine': 'success',
+      'Urgent': 'warning',
+      'Emergent': 'danger'
     };
-    return styles[status] || styles.pending;
+    
+    const variant = urgencyConfig[urgency] || 'secondary';
+    
+    return (
+      <span className={`badge bg-${variant}`} style={{
+        fontSize: '0.8rem',
+        fontWeight: 500,
+        padding: '0.4rem 0.8rem'
+      }}>
+        {urgency}
+      </span>
+    );
   };
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f7fa' }}>
-      {/* Professional Header */}
-      <nav className="navbar navbar-expand-lg navbar-dark shadow-sm" style={{ 
+      {/* Professional Navigation Bar */}
+      <nav className="navbar navbar-dark shadow-sm" style={{
         background: 'linear-gradient(135deg, #0f4c81 0%, #1a5f8a 100%)',
         borderBottom: '3px solid #0a3557'
       }}>
         <div className="container-fluid px-4">
-          <div className="d-flex align-items-center">
-            <div style={{ fontSize: '1.75rem', marginRight: '0.75rem' }}>⚕️</div>
-            <div>
-              <h5 className="mb-0 fw-bold text-white" style={{ fontSize: '1.25rem' }}>
-                Radiologist Workstation
-              </h5>
-              <small style={{ color: 'rgba(255,255,255,0.85)', fontSize: '0.85rem' }}>
-                {user?.first_name} {user?.last_name}
-              </small>
-            </div>
+          <span className="navbar-brand fw-bold fs-5">
+            MedScanAI - Radiologist Portal
+          </span>
+          <div className="d-flex align-items-center gap-3">
+            <span className="text-white">
+              Dr. {user?.first_name} {user?.last_name}
+            </span>
+            <button 
+              className="btn btn-outline-light btn-sm"
+              onClick={handleLogout}
+              style={{ 
+                borderRadius: '6px', 
+                padding: '0.5rem 1.25rem',
+                fontWeight: 500
+              }}
+            >
+              Logout
+            </button>
           </div>
-          <button 
-            className="btn btn-outline-light btn-sm"
-            onClick={handleLogout}
-            style={{ borderRadius: '6px', padding: '0.5rem 1.25rem', fontWeight: 500 }}
-          >
-            Sign Out
-          </button>
         </div>
       </nav>
 
+      {/* Tabs */}
       <div className="container-fluid px-4 py-4">
-        {/* Professional Tabs with Badge */}
-        <ul className="nav nav-pills mb-4" style={{ gap: '0.5rem' }}>
+        <ul className="nav nav-tabs mb-4" style={{ borderBottom: '2px solid #dee2e6' }}>
           <li className="nav-item">
             <button
-              className={`nav-link d-flex align-items-center ${activeView === 'pending' ? 'active' : ''}`}
-              onClick={() => setActiveView('pending')}
+              className={`nav-link ${activeTab === 'pending' ? 'active' : ''}`}
+              onClick={() => setActiveTab('pending')}
               style={{
-                borderRadius: '8px',
-                padding: '0.65rem 1.5rem',
-                fontWeight: 500,
                 border: 'none',
-                background: activeView === 'pending' ? '#0f4c81' : 'white',
-                color: activeView === 'pending' ? 'white' : '#495057',
-                transition: 'all 0.2s',
-                boxShadow: activeView === 'pending' ? '0 4px 12px rgba(15, 76, 129, 0.2)' : 'none'
+                borderBottom: activeTab === 'pending' ? '3px solid #0f4c81' : '3px solid transparent',
+                background: activeTab === 'pending' ? '#f8f9fa' : 'transparent',
+                color: activeTab === 'pending' ? '#0f4c81' : '#6c757d',
+                fontWeight: activeTab === 'pending' ? 600 : 400,
+                padding: '0.75rem 1.5rem',
+                transition: 'all 0.2s'
               }}
             >
-              <span style={{ marginRight: '0.5rem' }}>⏳</span>
-              Pending Queue
-              {pendingScans.length > 0 && (
-                <span className="badge bg-danger ms-2" style={{ 
-                  borderRadius: '10px',
-                  padding: '0.25rem 0.6rem',
-                  fontSize: '0.75rem'
-                }}>
-                  {pendingScans.length}
-                </span>
-              )}
+              📋 Pending Queue
             </button>
           </li>
           <li className="nav-item">
             <button
-              className={`nav-link ${activeView === 'completed' ? 'active' : ''}`}
-              onClick={() => setActiveView('completed')}
+              className={`nav-link ${activeTab === 'completed' ? 'active' : ''}`}
+              onClick={() => setActiveTab('completed')}
               style={{
-                borderRadius: '8px',
-                padding: '0.65rem 1.5rem',
-                fontWeight: 500,
                 border: 'none',
-                background: activeView === 'completed' ? '#0f4c81' : 'white',
-                color: activeView === 'completed' ? 'white' : '#495057',
-                transition: 'all 0.2s',
-                boxShadow: activeView === 'completed' ? '0 4px 12px rgba(15, 76, 129, 0.2)' : 'none'
+                borderBottom: activeTab === 'completed' ? '3px solid #0f4c81' : '3px solid transparent',
+                background: activeTab === 'completed' ? '#f8f9fa' : 'transparent',
+                color: activeTab === 'completed' ? '#0f4c81' : '#6c757d',
+                fontWeight: activeTab === 'completed' ? 600 : 400,
+                padding: '0.75rem 1.5rem',
+                transition: 'all 0.2s'
               }}
             >
-              <span style={{ marginRight: '0.5rem' }}>✅</span>
-              Completed
+              ✅ Completed Cases
             </button>
           </li>
           <li className="nav-item">
             <button
-              className={`nav-link ${activeView === 'profile' ? 'active' : ''}`}
-              onClick={() => setActiveView('profile')}
+              className={`nav-link ${activeTab === 'profile' ? 'active' : ''}`}
+              onClick={() => setActiveTab('profile')}
               style={{
-                borderRadius: '8px',
-                padding: '0.65rem 1.5rem',
-                fontWeight: 500,
                 border: 'none',
-                background: activeView === 'profile' ? '#0f4c81' : 'white',
-                color: activeView === 'profile' ? 'white' : '#495057',
-                transition: 'all 0.2s',
-                boxShadow: activeView === 'profile' ? '0 4px 12px rgba(15, 76, 129, 0.2)' : 'none'
+                borderBottom: activeTab === 'profile' ? '3px solid #0f4c81' : '3px solid transparent',
+                background: activeTab === 'profile' ? '#f8f9fa' : 'transparent',
+                color: activeTab === 'profile' ? '#0f4c81' : '#6c757d',
+                fontWeight: activeTab === 'profile' ? 600 : 400,
+                padding: '0.75rem 1.5rem',
+                transition: 'all 0.2s'
               }}
             >
-              <span style={{ marginRight: '0.5rem' }}>👤</span>
-              My Profile
+              👤 My Profile
             </button>
           </li>
         </ul>
 
-        {/* Profile View */}
-        {activeView === 'profile' && (
-          <div className="row">
-            <div className="col-lg-10">
-              {loading ? (
-                <div className="text-center py-5">
-                  <div className="spinner-border text-primary" />
+        {/* Profile Tab */}
+        {activeTab === 'profile' && (
+          <div>
+            {loading ? (
+              <div className="text-center py-5">
+                <div className="spinner-border text-primary" role="status">
+                  <span className="visually-hidden">Loading...</span>
                 </div>
-              ) : (
-                <div className="row g-4">
-                  {/* Personal Information */}
-                  <div className="col-md-6">
-                    <div className="card border-0 shadow-sm" style={{ borderRadius: '12px' }}>
-                      <div className="card-body p-4">
-                        <h5 className="mb-4 fw-bold" style={{ color: '#0f4c81' }}>
-                          Personal Information
-                        </h5>
-                        <div className="mb-3">
-                          <label className="text-muted small fw-semibold mb-1">Full Name</label>
-                          <p className="mb-0 fw-semibold" style={{ fontSize: '1.05rem' }}>
-                            {profile?.first_name} {profile?.last_name}
-                          </p>
-                        </div>
-                        <div className="mb-3">
-                          <label className="text-muted small fw-semibold mb-1">Email</label>
-                          <p className="mb-0">{profile?.email}</p>
-                        </div>
-                        <div className="mb-3">
-                          <label className="text-muted small fw-semibold mb-1">Phone</label>
-                          <p className="mb-0">{profile?.phone || 'Not provided'}</p>
-                        </div>
+                <p className="mt-3 text-muted">Loading profile...</p>
+              </div>
+            ) : (
+              <div className="row g-4">
+                {/* Personal Information */}
+                <div className="col-md-6">
+                  <div className="card border-0 shadow-sm h-100" style={{ borderRadius: '12px' }}>
+                    <div className="card-body p-4">
+                      <h5 className="mb-4 fw-bold" style={{ color: '#0f4c81' }}>
+                        👤 Personal Information
+                      </h5>
+                      <div className="mb-3">
+                        <label className="text-muted small fw-semibold mb-1">Full Name</label>
+                        <p className="mb-0 fw-semibold" style={{ fontSize: '1.05rem' }}>
+                          Dr. {profile?.first_name} {profile?.last_name}
+                        </p>
                       </div>
-                    </div>
-                  </div>
-
-                  {/* Professional Information */}
-                  <div className="col-md-6">
-                    <div className="card border-0 shadow-sm" style={{ borderRadius: '12px' }}>
-                      <div className="card-body p-4">
-                        <h5 className="mb-4 fw-bold" style={{ color: '#0f4c81' }}>
-                          Professional Information
-                        </h5>
-                        <div className="mb-3">
-                          <label className="text-muted small fw-semibold mb-1">License Number</label>
-                          <p className="mb-0 fw-semibold" style={{ fontSize: '1.05rem' }}>
-                            {profile?.license_number || 'N/A'}
-                          </p>
-                        </div>
-                        <div className="mb-3">
-                          <label className="text-muted small fw-semibold mb-1">Specialization</label>
-                          <p className="mb-0">{profile?.specialization || 'Not specified'}</p>
-                        </div>
-                        <div className="mb-3">
-                          <label className="text-muted small fw-semibold mb-1">Experience</label>
-                          <p className="mb-0">
-                            {profile?.years_of_experience ? `${profile.years_of_experience} years` : 'N/A'}
-                          </p>
-                        </div>
-                        <div className="mb-3">
-                          <label className="text-muted small fw-semibold mb-1">Institution</label>
-                          <p className="mb-0">{profile?.institution || 'Not specified'}</p>
-                        </div>
+                      <div className="mb-3">
+                        <label className="text-muted small fw-semibold mb-1">Email</label>
+                        <p className="mb-0">{profile?.email}</p>
                       </div>
-                    </div>
-                  </div>
-
-                  {/* Statistics */}
-                  <div className="col-12">
-                    <div className="card border-0 shadow-sm" style={{ 
-                      borderRadius: '12px',
-                      background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)'
-                    }}>
-                      <div className="card-body p-4">
-                        <h5 className="mb-4 fw-bold" style={{ color: '#0f4c81' }}>
-                          📊 Performance Summary
-                        </h5>
-                        <div className="row text-center">
-                          <div className="col-md-3">
-                            <div className="p-3">
-                              <h2 className="fw-bold mb-1" style={{ color: '#0f4c81' }}>
-                                {completedScans.length}
-                              </h2>
-                              <p className="text-muted mb-0 small">Completed Cases</p>
-                            </div>
-                          </div>
-                          <div className="col-md-3">
-                            <div className="p-3">
-                              <h2 className="fw-bold mb-1" style={{ color: '#ffc107' }}>
-                                {pendingScans.length}
-                              </h2>
-                              <p className="text-muted mb-0 small">Pending Review</p>
-                            </div>
-                          </div>
-                          <div className="col-md-3">
-                            <div className="p-3">
-                              <h2 className="fw-bold mb-1" style={{ color: '#28a745' }}>
-                                {completedScans.length + pendingScans.length}
-                              </h2>
-                              <p className="text-muted mb-0 small">Total Cases</p>
-                            </div>
-                          </div>
-                          <div className="col-md-3">
-                            <div className="p-3">
-                              <h2 className="fw-bold mb-1" style={{ color: '#17a2b8' }}>
-                                —
-                              </h2>
-                              <p className="text-muted mb-0 small">This Month</p>
-                            </div>
-                          </div>
-                        </div>
+                      <div className="mb-3">
+                        <label className="text-muted small fw-semibold mb-1">Phone</label>
+                        <p className="mb-0">{profile?.phone || 'Not provided'}</p>
                       </div>
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
+
+                {/* Professional Information */}
+                <div className="col-md-6">
+                  <div className="card border-0 shadow-sm h-100" style={{ borderRadius: '12px' }}>
+                    <div className="card-body p-4">
+                      <h5 className="mb-4 fw-bold" style={{ color: '#0f4c81' }}>
+                        🩺 Professional Information
+                      </h5>
+                      <div className="mb-3">
+                        <label className="text-muted small fw-semibold mb-1">License Number</label>
+                        <p className="mb-0 fw-semibold" style={{ 
+                          fontSize: '1.05rem',
+                          fontFamily: 'monospace'
+                        }}>
+                          {profile?.license_number || 'N/A'}
+                        </p>
+                      </div>
+                      <div className="mb-3">
+                        <label className="text-muted small fw-semibold mb-1">Specialization</label>
+                        <p className="mb-0">{profile?.specialization || 'Not specified'}</p>
+                      </div>
+                      <div className="mb-3">
+                        <label className="text-muted small fw-semibold mb-1">Years of Experience</label>
+                        <p className="mb-0">
+                          {profile?.years_of_experience ? `${profile.years_of_experience} years` : 'N/A'}
+                        </p>
+                      </div>
+                      <div className="mb-3">
+                        <label className="text-muted small fw-semibold mb-1">Institution</label>
+                        <p className="mb-0">{profile?.institution || 'Not specified'}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Statistics Card */}
+                <div className="col-12">
+                  <div className="card border-0 shadow-sm" style={{ 
+                    borderRadius: '12px',
+                    background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)'
+                  }}>
+                    <div className="card-body p-4">
+                      <h5 className="mb-4 fw-bold" style={{ color: '#0f4c81' }}>
+                        📊 Performance Overview
+                      </h5>
+                      <div className="row text-center">
+                        <div className="col-md-4">
+                          <div className="p-3">
+                            <div style={{
+                              fontSize: '2.5rem',
+                              fontWeight: 'bold',
+                              color: '#28a745',
+                              marginBottom: '0.5rem'
+                            }}>
+                              —
+                            </div>
+                            <p className="text-muted mb-0 fw-semibold">Cases This Week</p>
+                          </div>
+                        </div>
+                        <div className="col-md-4">
+                          <div className="p-3">
+                            <div style={{
+                              fontSize: '2.5rem',
+                              fontWeight: 'bold',
+                              color: '#0f4c81',
+                              marginBottom: '0.5rem'
+                            }}>
+                              —
+                            </div>
+                            <p className="text-muted mb-0 fw-semibold">Cases This Month</p>
+                          </div>
+                        </div>
+                        <div className="col-md-4">
+                          <div className="p-3">
+                            <div style={{
+                              fontSize: '2.5rem',
+                              fontWeight: 'bold',
+                              color: '#17a2b8',
+                              marginBottom: '0.5rem'
+                            }}>
+                              —
+                            </div>
+                            <p className="text-muted mb-0 fw-semibold">Total Career Cases</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Scans View */}
-        {(activeView === 'pending' || activeView === 'completed') && (
-          <>
+        {/* Scans View (Pending/Completed) */}
+        {(activeTab === 'pending' || activeTab === 'completed') && (
+          <div>
             <div className="d-flex justify-content-between align-items-center mb-4">
-              <div>
-                <h4 className="mb-1 fw-bold" style={{ color: '#2c3e50' }}>
-                  {activeView === 'pending' ? '⏳ Scan Queue' : '✅ Completed Cases'}
-                </h4>
-                <p className="text-muted mb-0 small">
-                  {activeView === 'pending' 
-                    ? 'Review and diagnose pending scans' 
-                    : 'View your completed diagnostic workflows'}
-                </p>
-              </div>
-              <button 
-                className="btn btn-outline-primary"
-                onClick={fetchScans}
-                style={{
-                  borderRadius: '8px',
-                  padding: '0.5rem 1.25rem',
-                  fontWeight: 500
-                }}
-              >
-                🔄 Refresh
-              </button>
+              <h4 className="mb-0 fw-bold" style={{ color: '#2c3e50' }}>
+                {activeTab === 'pending' ? 'Pending Scans' : 'Completed Scans'}
+              </h4>
+              <span className="badge bg-primary" style={{ 
+                fontSize: '0.9rem',
+                padding: '0.5rem 1rem',
+                fontWeight: 500
+              }}>
+                {scans.length} {scans.length === 1 ? 'scan' : 'scans'}
+              </span>
             </div>
 
             {loading ? (
               <div className="text-center py-5">
-                <div className="spinner-border text-primary" />
-                <p className="text-muted mt-3">Loading scans...</p>
+                <div className="spinner-border text-primary" role="status">
+                  <span className="visually-hidden">Loading...</span>
+                </div>
+                <p className="mt-3 text-muted">Loading scans...</p>
               </div>
             ) : scans.length === 0 ? (
               <div className="card border-0 shadow-sm" style={{ borderRadius: '12px' }}>
                 <div className="card-body text-center py-5">
-                  <div style={{ fontSize: '3rem', opacity: 0.3 }}>
-                    {activeView === 'pending' ? '✅' : '📋'}
-                  </div>
-                  <h5 className="fw-bold mb-2" style={{ color: '#2c3e50' }}>
-                    {activeView === 'pending' ? 'All Caught Up!' : 'No Completed Cases'}
-                  </h5>
+                  <svg 
+                    width="64" 
+                    height="64" 
+                    fill="currentColor" 
+                    className="text-muted mb-3" 
+                    viewBox="0 0 16 16"
+                  >
+                    <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                    <path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/>
+                  </svg>
                   <p className="text-muted mb-0">
-                    {activeView === 'pending' 
-                      ? 'There are no scans pending review at this time.'
-                      : 'You haven\'t completed any cases yet.'}
+                    {activeTab === 'pending' ? 'No pending scans' : 'No completed scans'}
                   </p>
                 </div>
               </div>
             ) : (
-              <div className="row g-4">
-                {scans.map((scan) => {
-                  const urgencyStyle = getUrgencyStyle(scan.urgency_level);
-                  const statusStyle = getStatusStyle(scan.status);
-                  
-                  return (
-                    <div key={scan.id} className="col-md-6 col-xl-4">
-                      <div 
-                        className="card border-0 shadow-sm h-100"
+              <div className="table-responsive">
+                <table className="table table-hover align-middle" style={{ background: 'white', borderRadius: '12px' }}>
+                  <thead style={{ background: '#f8f9fa', borderBottom: '2px solid #dee2e6' }}>
+                    <tr>
+                      <th className="fw-semibold" style={{ padding: '1rem' }}>Patient</th>
+                      <th className="fw-semibold">Scan Number</th>
+                      <th className="fw-semibold">Exam Type</th>
+                      <th className="fw-semibold">Region</th>
+                      <th className="fw-semibold">Urgency</th>
+                      <th className="fw-semibold">Status</th>
+                      <th className="fw-semibold">Date</th>
+                      <th className="fw-semibold text-end">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scans.map((scan) => (
+                      <tr 
+                        key={scan.id}
                         style={{ 
-                          borderRadius: '12px',
                           cursor: 'pointer',
-                          transition: 'all 0.2s'
+                          transition: 'background 0.2s'
                         }}
-                        onClick={() => handleScanClick(scan.id)}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.transform = 'translateY(-4px)';
-                          e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.15)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.transform = 'translateY(0)';
-                          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
-                        }}
+                        onClick={() => navigate(`/radiologist/scan/${scan.id}`)}
+                        onMouseEnter={(e) => e.currentTarget.style.background = '#f8f9fa'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
                       >
-                        {/* Card Header with Badges */}
-                        <div className="card-header border-0 bg-white d-flex justify-content-between align-items-center" style={{
-                          padding: '1rem 1.25rem',
-                          borderRadius: '12px 12px 0 0'
-                        }}>
-                          <div style={{
-                            background: urgencyStyle.bg,
-                            color: urgencyStyle.color,
-                            padding: '0.35rem 0.85rem',
-                            borderRadius: '6px',
-                            fontSize: '0.75rem',
-                            fontWeight: 700,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.5px'
-                          }}>
-                            {scan.urgency_level === 'Emergent' && '🚨 '}
-                            {scan.urgency_level}
-                          </div>
-                          <div style={{
-                            background: statusStyle.bg,
-                            color: statusStyle.color,
-                            padding: '0.35rem 0.85rem',
-                            borderRadius: '6px',
-                            fontSize: '0.7rem',
-                            fontWeight: 600,
-                            textTransform: 'uppercase'
-                          }}>
-                            {scan.status.replace('_', ' ')}
-                          </div>
-                        </div>
-
-                        {/* Card Body */}
-                        <div className="card-body p-4">
-                          <div className="mb-3">
-                            <h5 className="fw-bold mb-1" style={{ color: '#2c3e50', fontSize: '1.15rem' }}>
-                              {scan.patient_name}
-                            </h5>
-                            <small className="text-muted">Patient ID: {scan.patient_id}</small>
-                          </div>
-
-                          <div className="mb-2">
-                            <small className="text-muted fw-semibold d-block mb-1">Scan Number</small>
-                            <p className="mb-0" style={{ fontSize: '0.9rem', fontFamily: 'monospace' }}>
-                              {scan.scan_number}
-                            </p>
-                          </div>
-
-                          <div className="row mb-2">
-                            <div className="col-6">
-                              <small className="text-muted fw-semibold d-block mb-1">Exam Type</small>
-                              <p className="mb-0" style={{ fontSize: '0.9rem' }}>{scan.examination_type}</p>
-                            </div>
-                            <div className="col-6">
-                              <small className="text-muted fw-semibold d-block mb-1">Region</small>
-                              <p className="mb-0" style={{ fontSize: '0.9rem' }}>{scan.body_region}</p>
-                            </div>
-                          </div>
-
-                          <div className="mb-0">
-                            <small className="text-muted fw-semibold d-block mb-1">Scan Date</small>
-                            <p className="mb-0" style={{ fontSize: '0.9rem' }}>
-                              {new Date(scan.scan_date).toLocaleDateString('en-US', {
-                                year: 'numeric',
-                                month: 'short',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Card Footer with Action */}
-                        <div className="card-footer border-0 bg-white" style={{ 
-                          padding: '1rem 1.25rem',
-                          borderRadius: '0 0 12px 12px'
-                        }}>
+                        <td style={{ padding: '1rem' }}>
+                          <div className="fw-semibold">{scan.patient_name}</div>
+                          <small className="text-muted">{scan.patient_id}</small>
+                        </td>
+                        <td>
+                          <span style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>
+                            {scan.scan_number}
+                          </span>
+                        </td>
+                        <td>{scan.examination_type}</td>
+                        <td>{scan.body_region}</td>
+                        <td>{getUrgencyBadge(scan.urgency_level)}</td>
+                        <td>{getStatusBadge(scan.status)}</td>
+                        <td>
+                          <small>
+                            {new Date(scan.scan_date).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric'
+                            })}
+                          </small>
+                        </td>
+                        <td className="text-end">
                           <button 
-                            className="btn w-100 text-white fw-semibold"
+                            className="btn btn-sm btn-primary"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleScanClick(scan.id);
+                              navigate(`/radiologist/scan/${scan.id}`);
                             }}
                             style={{
-                              background: 'linear-gradient(135deg, #0f4c81 0%, #1a5f8a 100%)',
-                              border: 'none',
-                              borderRadius: '8px',
-                              padding: '0.65rem',
-                              fontSize: '0.95rem'
+                              borderRadius: '6px',
+                              padding: '0.4rem 1rem',
+                              fontWeight: 500
                             }}
                           >
-                            {activeView === 'pending' ? '🔬 Review Scan' : '📋 View Details'}
+                            Review
                           </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
-          </>
+          </div>
         )}
       </div>
     </div>
