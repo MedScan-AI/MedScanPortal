@@ -51,36 +51,102 @@ async def chat_with_rag(
         
         logger.info(f"RAG query from {current_user.email}: '{request.message[:100]}'")
         
-        # Call GCP RAG endpoint
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            response = await client.post(
-                settings.RAG_ENDPOINT_URL,
-                json=rag_request,
-                headers={"Content-Type": "application/json"}
-            )
-            
-            if response.status_code != 200:
-                logger.error(f"RAG endpoint error: {response.status_code} - {response.text}")
+        # Configure timeout - longer for cross-cloud communication
+        timeout_config = httpx.Timeout(
+            connect=15.0,   # 15 seconds to establish connection
+            read=120.0,     # 2 minutes to read response
+            write=10.0,     # 10 seconds to send request
+            pool=10.0       # 10 seconds to get connection from pool
+        )
+        
+        # Call GCP RAG endpoint with better error handling
+        async with httpx.AsyncClient(timeout=timeout_config) as client:
+            try:
+                response = await client.post(
+                    settings.RAG_ENDPOINT_URL,
+                    json=rag_request,
+                    headers={"Content-Type": "application/json"}
+                )
+                
+                logger.info(f"RAG response status: {response.status_code}")
+                
+                if response.status_code != 200:
+                    logger.error(f"RAG endpoint error: {response.status_code} - {response.text}")
+                    
+                    # Specific error messages based on status code
+                    if response.status_code == 403:
+                        raise HTTPException(
+                            status_code=502,
+                            detail="AI assistant access denied. Please contact administrator."
+                        )
+                    elif response.status_code == 404:
+                        raise HTTPException(
+                            status_code=502,
+                            detail="AI assistant endpoint not found. Please contact administrator."
+                        )
+                    elif response.status_code >= 500:
+                        raise HTTPException(
+                            status_code=502,
+                            detail="AI assistant is experiencing issues. Please try again later."
+                        )
+                    else:
+                        raise HTTPException(
+                            status_code=502,
+                            detail="AI assistant temporarily unavailable. Please try again."
+                        )
+                
+                result = response.json()
+                
+            except httpx.ConnectTimeout:
+                logger.error("RAG endpoint connection timeout")
+                raise HTTPException(
+                    status_code=504,
+                    detail="Could not connect to AI assistant. The service may be starting up. Please try again in 30 seconds."
+                )
+            except httpx.ReadTimeout:
+                logger.error("RAG endpoint read timeout")
+                raise HTTPException(
+                    status_code=504,
+                    detail="AI assistant is taking longer than expected. Please try a simpler question or try again later."
+                )
+            except httpx.WriteTimeout:
+                logger.error("RAG endpoint write timeout")
+                raise HTTPException(
+                    status_code=504,
+                    detail="Could not send request to AI assistant. Please try again."
+                )
+            except httpx.NetworkError as e:
+                logger.error(f"RAG endpoint network error: {e}")
                 raise HTTPException(
                     status_code=502,
-                    detail="AI assistant temporarily unavailable. Please try again."
+                    detail="Network error connecting to AI assistant. Please check your connection and try again."
                 )
-            
-            result = response.json()
         
         # Parse response
         if not result.get("predictions"):
-            raise HTTPException(status_code=500, detail="Invalid response from RAG model")
+            logger.error("Invalid RAG response format - no predictions")
+            raise HTTPException(
+                status_code=500, 
+                detail="Invalid response from RAG model"
+            )
         
         prediction = result["predictions"][0]
         
-        if not prediction.get("success"):
+        # Handle both "success" key present or missing (some RAG endpoints don't include it)
+        if "success" in prediction and not prediction.get("success"):
             error_msg = prediction.get("error", "RAG model returned an error")
             logger.error(f"RAG prediction failed: {error_msg}")
             raise HTTPException(status_code=500, detail=error_msg)
         
         # Get raw answer
         raw_answer = prediction.get("answer", "")
+        
+        if not raw_answer:
+            logger.warning("RAG returned empty answer")
+            raise HTTPException(
+                status_code=500,
+                detail="AI assistant returned empty response. Please try rephrasing your question."
+            )
         
         # Clean the response
         cleaned_answer, sources = clean_rag_response(raw_answer)
@@ -99,14 +165,14 @@ async def chat_with_rag(
             } if stats else None
         )
         
-    except httpx.TimeoutException:
-        logger.error("RAG endpoint timeout")
+    except HTTPException:
+        raise
+    except httpx.TimeoutException as e:
+        logger.error(f"RAG endpoint timeout: {e}")
         raise HTTPException(
             status_code=504,
             detail="The AI assistant is taking too long. Please try again."
         )
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"RAG chat error: {e}", exc_info=True)
         raise HTTPException(
@@ -120,14 +186,14 @@ def clean_rag_response(raw_answer: str) -> tuple[str, List[Dict[str, str]]]:
     Clean RAG response:
     1. Remove "References:" section
     2. Remove "Important:" disclaimer
-    3. Extract sources from markdown links
+    3. Remove "Limitation:" section
+    4. Extract sources from markdown links
     
     Returns:
         (cleaned_answer, sources_list)
     """
     # Step 1: Remove "References:" section and everything after it
     if "References:" in raw_answer or "**References:**" in raw_answer:
-        # Split at References and take only the part before it
         answer = re.split(r'\*\*References:\*\*|References:', raw_answer)[0].strip()
     else:
         answer = raw_answer
@@ -136,10 +202,14 @@ def clean_rag_response(raw_answer: str) -> tuple[str, List[Dict[str, str]]]:
     if "Important:" in answer or "**Important:**" in answer:
         answer = re.split(r'\*\*Important:\*\*|Important:', answer)[0].strip()
     
-    # Step 3: Remove trailing "---" markers
+    # Step 3: Remove "Limitation:" section
+    if "Limitation:" in answer or "**Limitation:**" in answer:
+        answer = re.split(r'\*\*Limitation:\*\*|Limitation:', answer)[0].strip()
+    
+    # Step 4: Remove trailing "---" markers
     answer = re.sub(r'\n*---\n*$', '', answer).strip()
     
-    # Step 4: Extract sources from markdown links in the ORIGINAL answer
+    # Step 5: Extract sources from markdown links in the ORIGINAL answer
     # Format: [Title](URL)
     sources = []
     markdown_links = re.findall(r'\[([^\]]+)\]\(([^)]+)\)', raw_answer)
@@ -166,7 +236,10 @@ def clean_rag_response(raw_answer: str) -> tuple[str, List[Dict[str, str]]]:
 async def check_rag_health():
     """Check if RAG endpoint is accessible."""
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        # Use shorter timeout for health check
+        timeout_config = httpx.Timeout(10.0)
+        
+        async with httpx.AsyncClient(timeout=timeout_config) as client:
             test_request = {
                 "instances": [{"query": "test"}]
             }
@@ -181,7 +254,8 @@ async def check_rag_health():
             
             if is_healthy:
                 result = response.json()
-                success = result.get("predictions", [{}])[0].get("success", False)
+                # Some RAG endpoints don't return "success" field
+                success = result.get("predictions", [{}])[0].get("success", True)
             else:
                 success = False
             
@@ -191,7 +265,29 @@ async def check_rag_health():
                 "status_code": response.status_code,
                 "rag_success": success
             }
+    except httpx.TimeoutException:
+        logger.error("RAG health check timeout")
+        return {
+            "status": "unhealthy",
+            "endpoint": settings.RAG_ENDPOINT_URL,
+            "error": "Timeout - service may be cold starting"
+        }
+    except httpx.ConnectError as e:
+        logger.error(f"RAG health check connection error: {e}")
+        return {
+            "status": "unhealthy",
+            "endpoint": settings.RAG_ENDPOINT_URL,
+            "error": f"Connection error: {str(e)}"
+        }
+    except httpx.NetworkError as e:
+        logger.error(f"RAG health check network error: {e}")
+        return {
+            "status": "unhealthy",
+            "endpoint": settings.RAG_ENDPOINT_URL,
+            "error": f"Network error: {str(e)}"
+        }
     except Exception as e:
+        logger.error(f"RAG health check failed: {e}")
         return {
             "status": "unhealthy",
             "endpoint": settings.RAG_ENDPOINT_URL,
