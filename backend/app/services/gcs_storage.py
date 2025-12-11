@@ -1,11 +1,11 @@
 """
 GCS Storage Service for MedScan Web Platform
-Handles all image uploads/downloads using GCS
+Handles image uploads and MLOps sync with proper class folder structure
 """
 import os
 from pathlib import Path
 from typing import Optional, List
-from datetime import timedelta
+from datetime import timedelta, datetime
 from io import BytesIO
 import logging
 
@@ -66,7 +66,10 @@ class GCSStorageService:
         content_type: str = 'image/jpeg'
     ) -> str:
         """
-        Upload scan image to GCS.
+        Upload scan image to platform storage (temporary storage for web portal).
+        
+        Location: platform/raw_scans/patients/{patient_id}/{scan_id}/{filename}
+        Purpose: Web portal display, temporary until synced to MLOps
         
         Args:
             file_data: Image file data
@@ -78,18 +81,91 @@ class GCSStorageService:
         Returns:
             GCS URL (gs://bucket/path)
         """
-        # Path: platform/raw_scans/patients/{patient_id}/{scan_id}/{filename}
         gcs_path = f"platform/raw_scans/patients/{patient_id}/{scan_id}/{filename}"
         
         blob = self.bucket.blob(gcs_path)
         file_data.seek(0)
         blob.upload_from_file(file_data, content_type=content_type)
         
-        # Return GCS URL
         url = f"gs://{self.bucket_name}/{gcs_path}"
-        
-        logger.info(f"Uploaded: {url}")
+        logger.info(f"Uploaded to platform: {url}")
         return url
+    
+    def copy_to_mlops_folder(
+        self,
+        source_url: str,
+        dataset_type: str,
+        class_folder: str,
+        patient_id: str,
+        split: str = 'train'
+    ) -> str:
+        """
+        Copy image from platform/ to vision/ with proper class structure for MLOps.
+        Server-side copy (instant - no download/upload).
+        
+        CREATES STRUCTURE MATCHING DATA PIPELINE REQUIREMENTS:
+        vision/raw/{dataset_type}/{split}/{class_folder}/{date}_{patient_id}_{filename}
+        
+        Examples:
+        - vision/raw/tb/train/Tuberculosis/20241211_PT-001_original.jpg
+        - vision/raw/lung_cancer/train/adenocarcinoma/20241211_PT-002_original.jpg
+        - vision/raw/lung_cancer/test/normal/20241211_PT-003_original.jpg
+        
+        This structure is REQUIRED by preprocessing scripts:
+        - process_tb.py uses flow_from_directory('vision/raw/tb/train/')
+        - flow_from_directory() finds class subdirectories automatically
+        - Infers labels from folder names (Normal, Tuberculosis, adenocarcinoma, etc.)
+        
+        Args:
+            source_url: Source GCS URL (gs://bucket/platform/...)
+            dataset_type: 'tb' or 'lung_cancer'
+            class_folder: Class folder name (e.g., 'Tuberculosis', 'adenocarcinoma')
+            patient_id: Patient ID (e.g., PT-001)
+            split: 'train' or 'test' (default: 'train')
+            
+        Returns:
+            Destination GCS URL
+        """
+        self._initialize()  # Ensure initialized
+        
+        # Extract source path from GCS URL
+        if source_url.startswith('gs://'):
+            source_path = source_url.split(f'{self.bucket_name}/')[-1]
+        else:
+            source_path = source_url
+        
+        # Extract filename
+        filename = Path(source_path).name
+        
+        # Add date prefix to filename for tracking
+        # Format: YYYYMMDD_patient-id_filename.jpg
+        today = datetime.utcnow()
+        date_prefix = today.strftime('%Y%m%d')
+        timestamped_filename = f"{date_prefix}_{patient_id}_{filename}"
+        
+        # UPDATED STRUCTURE: vision/raw/{dataset_type}/{split}/{class_folder}/{filename}
+        # This matches what flow_from_directory() expects:
+        # - Looks in train/ or test/ directory
+        # - Finds class subdirectories (Normal/, Tuberculosis/, adenocarcinoma/, etc.)
+        # - Infers labels from folder names
+        dest_path = f"vision/raw/{dataset_type}/{split}/{class_folder}/{timestamped_filename}"
+        
+        # Server-side copy (no data transfer - instant!)
+        source_blob = self.bucket.blob(source_path)
+        
+        # Verify source exists
+        if not source_blob.exists():
+            raise FileNotFoundError(f"Source image not found: {source_url}")
+        
+        # Copy blob (server-side operation)
+        self.bucket.copy_blob(source_blob, self.bucket, dest_path)
+        
+        dest_url = f"gs://{self.bucket_name}/{dest_path}"
+        
+        logger.info(f"✓ Copied to MLOps: {dest_url}")
+        logger.info(f"  Structure: {dataset_type}/{split}/{class_folder}/")
+        
+        return dest_url
     
     def get_signed_url(
         self, 
@@ -106,7 +182,7 @@ class GCSStorageService:
         Returns:
             Signed HTTPS URL
         """
-        self._initialize()  # Ensure initialized
+        self._initialize()
         
         # Extract path from gs:// URL
         if gcs_url.startswith('gs://'):
@@ -157,7 +233,7 @@ class GCSStorageService:
     def delete_image(self, gcs_url: str) -> bool:
         """Delete image from GCS."""
         try:
-            self._initialize()  # Ensure initialized
+            self._initialize()
             
             if gcs_url.startswith('gs://'):
                 gcs_path = gcs_url.split(f'{self.bucket_name}/')[-1]
@@ -175,65 +251,20 @@ class GCSStorageService:
     
     def list_scan_images(self, patient_id: str, scan_id: str) -> List[str]:
         """
-        List all images for a scan.
+        List all images for a scan in platform storage.
         
         Returns:
             List of GCS URLs
         """
-        self._initialize()  # Ensure initialized
+        self._initialize()
         
         prefix = f"platform/raw_scans/patients/{patient_id}/{scan_id}/"
         blobs = self.client.list_blobs(self.bucket_name, prefix=prefix)
-        return [f"gs://{self.bucket_name}/{blob.name}" for blob in blobs if not blob.name.endswith('/')]
-    
-    def copy_to_mlops_folder(
-        self,
-        source_url: str,
-        diagnosis: str,
-        patient_id: str,
-        date_partition: Optional[str] = None
-    ) -> str:
-        """
-        Copy image from platform/ to vision/ folder for MLOps.
-        Server-side copy (very fast, no download/upload).
-        
-        Args:
-            source_url: Source GCS URL (gs://bucket/platform/...)
-            diagnosis: 'tb' or 'lung_cancer'
-            patient_id: Patient ID
-            date_partition: Optional date string (YYYY/MM/DD), defaults to today
-            
-        Returns:
-            Destination GCS URL
-        """
-        self._initialize()  # Ensure initialized
-        
-        # Extract source path
-        if source_url.startswith('gs://'):
-            source_path = source_url.split(f'{self.bucket_name}/')[-1]
-        else:
-            source_path = source_url
-        
-        # Generate date partition
-        if not date_partition:
-            from datetime import datetime
-            today = datetime.utcnow()
-            date_partition = f"{today.year}/{today.month:02d}/{today.day:02d}"
-        
-        # Extract filename
-        filename = Path(source_path).name
-        
-        # Destination: vision/raw/{diagnosis}/YYYY/MM/DD/{patient_id}_{filename}
-        dest_path = f"vision/raw/{diagnosis}/{date_partition}/{patient_id}_{filename}"
-        
-        # Server-side copy (no data transfer!)
-        source_blob = self.bucket.blob(source_path)
-        self.bucket.copy_blob(source_blob, self.bucket, dest_path)
-        
-        dest_url = f"gs://{self.bucket_name}/{dest_path}"
-        logger.info(f"Copied to MLOps: {dest_url}")
-        
-        return dest_url
+        return [
+            f"gs://{self.bucket_name}/{blob.name}" 
+            for blob in blobs 
+            if not blob.name.endswith('/')
+        ]
 
 
 # Singleton instance
