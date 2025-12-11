@@ -12,6 +12,7 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -20,6 +21,75 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
+
+  const pollJobStatus = async (jobId: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const token = localStorage.getItem('token');
+      let pollCount = 0;
+      const maxPolls = 150; // 5 minutes max
+
+      pollingIntervalRef.current = setInterval(async () => {
+        try {
+          pollCount++;
+
+          const response = await axios.get(
+            `${apiBaseUrl}/rag/chat/status/${jobId}`,
+            {
+              headers: { 'Authorization': `Bearer ${token}` },
+              timeout: 10000
+            }
+          );
+
+          const { status, result, error } = response.data;
+
+          if (status === 'completed' && result) {
+            if (pollingIntervalRef.current) {
+              clearInterval(pollingIntervalRef.current);
+              pollingIntervalRef.current = null;
+            }
+            
+            const assistantMessage: Message = {
+              role: 'assistant',
+              content: result.response,
+              sources: result.sources || [],
+              timestamp: new Date()
+            };
+            
+            addMessage(assistantMessage);
+            resolve();
+          } else if (status === 'failed') {
+            if (pollingIntervalRef.current) {
+              clearInterval(pollingIntervalRef.current);
+              pollingIntervalRef.current = null;
+            }
+            throw new Error(error || 'AI processing failed');
+          } else if (pollCount >= maxPolls) {
+            if (pollingIntervalRef.current) {
+              clearInterval(pollingIntervalRef.current);
+              pollingIntervalRef.current = null;
+            }
+            throw new Error('Request timed out. The AI is taking longer than expected.');
+          }
+          
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } catch (error: any) {
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+          }
+          reject(error);
+        }
+      }, 2000); // Poll every 2 seconds
+    });
+  };
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
@@ -37,8 +107,9 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
     try {
       const token = localStorage.getItem('token');
       
-      const response = await axios.post(
-        `${apiBaseUrl}/rag/chat`,
+      // Start async job
+      const startResponse = await axios.post(
+        `${apiBaseUrl}/rag/chat/start`,
         {
           message: userMessage.content,
           conversation_history: messages.slice(-10)
@@ -48,26 +119,32 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
-          timeout: 300000
+          timeout: 10000
         }
       );
 
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: response.data.response,
-        sources: response.data.sources || [],
-        timestamp: new Date()
-      };
-
-      addMessage(assistantMessage);
+      const { job_id } = startResponse.data;
+      
+      // Poll for results
+      await pollJobStatus(job_id);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error('Chat error:', error);
       
+      let errorMsg = 'Sorry, I encountered an error. Please try again.';
+      
+      if (error.response?.status === 504) {
+        errorMsg = 'The AI is taking longer than expected to respond. Please try a simpler question or try again later.';
+      } else if (error.response?.data?.detail) {
+        errorMsg = error.response.data.detail;
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
+      
       const errorMessage: Message = {
         role: 'assistant',
-        content: error.response?.data?.detail || 'Sorry, I encountered an error. Please try again.',
+        content: errorMsg,
         timestamp: new Date()
       };
       
@@ -132,7 +209,6 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
                   boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
                 }}
               >
-                {/* Render markdown properly */}
                 <div style={{ 
                   fontSize: '0.95rem',
                   lineHeight: '1.6'
@@ -171,7 +247,6 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
                       ))}
                     </div>
                     
-                    {/* Medical Disclaimer - After Sources */}
                     <div className="mt-3 pt-3" style={{ 
                       borderTop: '1px solid rgba(0,0,0,0.05)',
                       fontSize: '0.75rem',
@@ -200,6 +275,7 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
           </div>
         ))}
 
+        {/* Simple Loader - No Progress Bar */}
         {loading && (
           <div className="mb-3 d-flex justify-content-start">
             <div className="bg-white p-3 shadow-sm" style={{ borderRadius: '12px' }}>
@@ -209,9 +285,6 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
                   AI is analyzing your question...
                 </span>
               </div>
-              <small className="text-muted d-block mt-1" style={{ fontSize: '0.75rem' }}>
-                This may take some time
-              </small>
             </div>
           </div>
         )}
@@ -283,7 +356,7 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
               minWidth: '100px'
             }}
           >
-            {loading ? 'Sending...' : 'Send'}
+            {loading ? 'Processing...' : 'Send'}
           </button>
         </div>
         <small className="text-muted d-block mt-2" style={{ fontSize: '0.8rem' }}>
@@ -291,7 +364,7 @@ const ChatInterface = ({ apiBaseUrl = 'http://localhost:8000/api' }: ChatInterfa
         </small>
       </div>
 
-      {/* CSS for markdown */}
+      {/* CSS */}
       <style>{`
         .markdown-content h1, .markdown-content h2, .markdown-content h3 {
           color: #2c3e50;

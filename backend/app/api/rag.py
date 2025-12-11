@@ -1,12 +1,14 @@
 """
-RAG Chat Endpoint - Connects to GCP Cloud Run RAG Service
+RAG Chat Endpoint
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import httpx
 import logging
 import re
+import uuid
+from datetime import datetime, timedelta
 
 from app.core.config import settings
 from app.core.security import get_current_user
@@ -15,6 +17,8 @@ from app.models.user import User
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# In-memory job storage (use Redis in production)
+rag_jobs = {}
 
 class ChatMessage(BaseModel):
     role: str
@@ -32,34 +36,310 @@ class ChatResponse(BaseModel):
     stats: Optional[Dict[str, Any]] = None
 
 
+class JobStartResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str
+
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    progress: Optional[int] = None
+    result: Optional[ChatResponse] = None
+    error: Optional[str] = None
+
+
+def clean_rag_response(prediction: Dict) -> tuple[str, List[Dict[str, str]]]:
+    """
+    Clean RAG response based on ACTUAL endpoint structure.
+    
+    Response structure from endpoint:
+    {
+      "answer": "Main text...Limitations:...\\n\\n**References:**\\n1. [Title](URL)\\n\\n---\\n**Important:**...",
+      "stats": {
+        "sources": [
+          {"rank": 1, "title": "...", "link": "...", "score": 0.85},
+          ...
+        ]
+      }
+    }
+    
+    Returns:
+        (cleaned_answer, sources_list)
+    """
+    
+    raw_answer = prediction.get("answer", "")
+    stats = prediction.get("stats", {})
+    
+    if not raw_answer:
+        return "", []
+    
+    # Step 1: Remove everything after "Limitations:"
+    # Pattern: "Limitations: While the provided documents..."
+    if "Limitations:" in raw_answer:
+        answer = raw_answer.split("Limitations:")[0].strip()
+    elif "Limitation:" in raw_answer:
+        answer = raw_answer.split("Limitation:")[0].strip()
+    else:
+        answer = raw_answer
+    
+    # Step 2: Remove "**References:**" section (everything after it)
+    if "**References:**" in answer:
+        answer = answer.split("**References:**")[0].strip()
+    elif "References:" in answer:
+        answer = answer.split("References:")[0].strip()
+    
+    # Step 3: Remove "---" separator line
+    answer = re.sub(r'\n*---+\n*', '', answer).strip()
+    
+    # Step 4: Remove "**Important:**" disclaimer section
+    if "**Important:**" in answer:
+        answer = answer.split("**Important:**")[0].strip()
+    elif "Important:" in answer:
+        answer = answer.split("Important:")[0].strip()
+    
+    # Step 5: Remove any "Answer:" labels at the start
+    answer = re.sub(r'^(Answer:|Answer\s*:)\s*', '', answer, flags=re.IGNORECASE).strip()
+    
+    # Step 6: Remove duplicate paragraphs (paragraph-level deduplication)
+    paragraphs = answer.split('\n\n')
+    seen_paragraphs = set()
+    unique_paragraphs = []
+    
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+        
+        # Normalize for comparison
+        normalized = ' '.join(para.lower().split())
+        
+        if normalized not in seen_paragraphs:
+            seen_paragraphs.add(normalized)
+            unique_paragraphs.append(para)
+    
+    answer = '\n\n'.join(unique_paragraphs)
+    
+    # Step 7: Remove repetitive sentences within text
+    sentences = re.split(r'(?<=[.!?])\s+', answer)
+    seen_sentences = set()
+    unique_sentences = []
+    
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        
+        normalized = ' '.join(sentence.lower().split())
+        
+        if normalized not in seen_sentences:
+            seen_sentences.add(normalized)
+            unique_sentences.append(sentence)
+    
+    answer = ' '.join(unique_sentences)
+    
+    # Step 8: Remove incomplete sentence at the end
+    if answer and answer[-1] not in '.!?':
+        last_period = max(
+            answer.rfind('.'),
+            answer.rfind('!'),
+            answer.rfind('?')
+        )
+        
+        if last_period > 0:
+            answer = answer[:last_period + 1].strip()
+    
+    # Step 9: Final whitespace cleanup
+    answer = re.sub(r'\s+', ' ', answer)  # Multiple spaces to single
+    answer = re.sub(r'\n{3,}', '\n\n', answer)  # Max 2 newlines
+    answer = answer.strip()
+    
+    # Step 10: Extract sources from stats.sources (structured data!)
+    sources = []
+    sources_data = stats.get("sources", [])
+    
+    for source in sources_data[:5]:  # Limit to 5 sources
+        title = source.get("title", "").strip()
+        link = source.get("link", "").strip()
+        
+        if title and link and link.startswith('http'):
+            # Clean title (remove extra characters)
+            title = title.replace('__', '').strip()
+            title = re.sub(r'^\d+\.\s*', '', title)  # Remove leading numbers
+            
+            # Remove "-Tuberculosis-Tuberculosis" type duplicates in title
+            title = re.sub(r'-(\w+)-\1', r'-\1', title)
+            
+            sources.append({
+                "title": title,
+                "url": link
+            })
+    
+    # If no sources in stats, try extracting from markdown links in original answer
+    if not sources:
+        markdown_links = re.findall(r'\[([^\]]+)\]\(([^)]+)\)', raw_answer)
+        seen_urls = set()
+        
+        for title, url in markdown_links:
+            if url.startswith('http') and url not in seen_urls:
+                clean_title = title.strip().replace('__', '').strip()
+                clean_title = re.sub(r'^\d+\.\s*', '', clean_title)
+                sources.append({"title": clean_title, "url": url.strip()})
+                seen_urls.add(url)
+        
+        sources = sources[:5]
+    
+    return answer, sources
+
+
+async def process_rag_job(job_id: str, message: str):
+    """Background task to process RAG request."""
+    try:
+        logger.info(f"[Job {job_id}] Starting RAG processing...")
+        
+        rag_jobs[job_id]["status"] = "processing"
+        rag_jobs[job_id]["progress"] = 20
+        
+        rag_request = {"instances": [{"query": message}]}
+        
+        timeout_config = httpx.Timeout(
+            connect=30.0,
+            read=300.0,
+            write=30.0,
+            pool=30.0
+        )
+        
+        rag_jobs[job_id]["progress"] = 40
+        
+        async with httpx.AsyncClient(timeout=timeout_config) as client:
+            response = await client.post(
+                settings.RAG_ENDPOINT_URL,
+                json=rag_request,
+                headers={"Content-Type": "application/json"}
+            )
+            
+            rag_jobs[job_id]["progress"] = 80
+            
+            if response.status_code != 200:
+                raise Exception(f"RAG endpoint returned {response.status_code}")
+            
+            result = response.json()
+        
+        if not result.get("predictions"):
+            raise Exception("Invalid RAG response - no predictions")
+        
+        prediction = result["predictions"][0]
+        
+        # Check success flag
+        if "success" in prediction and not prediction.get("success"):
+            error_msg = prediction.get("error", "RAG processing failed")
+            raise Exception(error_msg)
+        
+        # Clean response using CORRECT extraction
+        cleaned_answer, sources = clean_rag_response(prediction)
+        
+        if not cleaned_answer:
+            raise Exception("Cleaning produced empty answer")
+        
+        logger.info(f"[Job {job_id}] Cleaned: {len(cleaned_answer)} chars, {len(sources)} sources")
+        
+        # Store result
+        rag_jobs[job_id]["status"] = "completed"
+        rag_jobs[job_id]["progress"] = 100
+        rag_jobs[job_id]["result"] = ChatResponse(
+            response=cleaned_answer,
+            sources=sources,
+            stats={
+                "confidence": prediction.get("stats", {}).get("avg_retrieval_score"),
+                "num_docs": prediction.get("stats", {}).get("num_retrieved_docs")
+            }
+        )
+        rag_jobs[job_id]["completed_at"] = datetime.utcnow()
+        
+        logger.info(f"[Job {job_id}] Completed successfully")
+        
+    except Exception as e:
+        logger.error(f"[Job {job_id}] ✗ Failed: {e}")
+        rag_jobs[job_id]["status"] = "failed"
+        rag_jobs[job_id]["error"] = str(e)
+        rag_jobs[job_id]["completed_at"] = datetime.utcnow()
+
+
+@router.post("/chat/start", response_model=JobStartResponse)
+async def start_chat_job(
+    request: ChatRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user)
+):
+    """Start RAG processing in background."""
+    job_id = str(uuid.uuid4())
+    
+    rag_jobs[job_id] = {
+        "status": "pending",
+        "progress": 0,
+        "created_at": datetime.utcnow(),
+        "user_id": str(current_user.id),
+        "message": request.message
+    }
+    
+    background_tasks.add_task(process_rag_job, job_id, request.message)
+    
+    logger.info(f"[Job {job_id}] Created for user {current_user.email}")
+    
+    return JobStartResponse(
+        job_id=job_id,
+        status="pending",
+        message="RAG processing started"
+    )
+
+
+@router.get("/chat/status/{job_id}", response_model=JobStatusResponse)
+async def get_job_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get status of RAG processing job."""
+    if job_id not in rag_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = rag_jobs[job_id]
+    
+    if job["user_id"] != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    created_at = job["created_at"]
+    if datetime.utcnow() - created_at > timedelta(minutes=10):
+        job["status"] = "failed"
+        job["error"] = "Job expired"
+    
+    return JobStatusResponse(
+        job_id=job_id,
+        status=job["status"],
+        progress=job.get("progress"),
+        result=job.get("result"),
+        error=job.get("error")
+    )
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat_with_rag(
     request: ChatRequest,
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Send user question to RAG model and return cleaned answer.
-    """
+    """Legacy synchronous endpoint."""
     try:
-        rag_request = {
-            "instances": [
-                {
-                    "query": request.message
-                }
-            ]
-        }
+        rag_request = {"instances": [{"query": request.message}]}
         
         logger.info(f"RAG query from {current_user.email}: '{request.message[:100]}'")
         
-        # Configure timeout - longer for cross-cloud communication
         timeout_config = httpx.Timeout(
-            connect=300.0,   # 15 seconds to establish connection
-            read=300.0,     # 2 minutes to read response
-            write=300.0,     # 10 seconds to send request
-            pool=300.0       # 10 seconds to get connection from pool
+            connect=10.0,
+            read=50.0,
+            write=10.0,
+            pool=10.0
         )
         
-        # Call GCP RAG endpoint with better error handling
         async with httpx.AsyncClient(timeout=timeout_config) as client:
             try:
                 response = await client.post(
@@ -68,181 +348,58 @@ async def chat_with_rag(
                     headers={"Content-Type": "application/json"}
                 )
                 
-                logger.info(f"RAG response status: {response.status_code}")
-                
                 if response.status_code != 200:
-                    logger.error(f"RAG endpoint error: {response.status_code} - {response.text}")
-                    
-                    # Specific error messages based on status code
-                    if response.status_code == 403:
-                        raise HTTPException(
-                            status_code=502,
-                            detail="AI assistant access denied. Please contact administrator."
-                        )
-                    elif response.status_code == 404:
-                        raise HTTPException(
-                            status_code=502,
-                            detail="AI assistant endpoint not found. Please contact administrator."
-                        )
-                    elif response.status_code >= 500:
-                        raise HTTPException(
-                            status_code=502,
-                            detail="AI assistant is experiencing issues. Please try again later."
-                        )
-                    else:
-                        raise HTTPException(
-                            status_code=502,
-                            detail="AI assistant temporarily unavailable. Please try again."
-                        )
+                    raise HTTPException(status_code=502, detail="AI assistant temporarily unavailable")
                 
                 result = response.json()
                 
-            except httpx.ConnectTimeout:
-                logger.error("RAG endpoint connection timeout")
+            except httpx.TimeoutException:
                 raise HTTPException(
                     status_code=504,
-                    detail="Could not connect to AI assistant. The service may be starting up. Please try again in 30 seconds."
-                )
-            except httpx.ReadTimeout:
-                logger.error("RAG endpoint read timeout")
-                raise HTTPException(
-                    status_code=504,
-                    detail="AI assistant is taking longer than expected. Please try a simpler question or try again later."
-                )
-            except httpx.WriteTimeout:
-                logger.error("RAG endpoint write timeout")
-                raise HTTPException(
-                    status_code=504,
-                    detail="Could not send request to AI assistant. Please try again."
-                )
-            except httpx.NetworkError as e:
-                logger.error(f"RAG endpoint network error: {e}")
-                raise HTTPException(
-                    status_code=502,
-                    detail="Network error connecting to AI assistant. Please check your connection and try again."
+                    detail="Response taking too long. Use /chat/start endpoint."
                 )
         
-        # Parse response
         if not result.get("predictions"):
-            logger.error("Invalid RAG response format - no predictions")
-            raise HTTPException(
-                status_code=500, 
-                detail="Invalid response from RAG model"
-            )
+            raise HTTPException(status_code=500, detail="Invalid response from RAG model")
         
         prediction = result["predictions"][0]
         
-        # Handle both "success" key present or missing (some RAG endpoints don't include it)
         if "success" in prediction and not prediction.get("success"):
-            error_msg = prediction.get("error", "RAG model returned an error")
-            logger.error(f"RAG prediction failed: {error_msg}")
+            error_msg = prediction.get("error", "RAG processing failed")
             raise HTTPException(status_code=500, detail=error_msg)
         
-        # Get raw answer
-        raw_answer = prediction.get("answer", "")
+        # Use CORRECT extraction
+        cleaned_answer, sources = clean_rag_response(prediction)
         
-        if not raw_answer:
-            logger.warning("RAG returned empty answer")
-            raise HTTPException(
-                status_code=500,
-                detail="AI assistant returned empty response. Please try rephrasing your question."
-            )
+        if not cleaned_answer:
+            raise HTTPException(status_code=500, detail="Cleaning produced empty answer")
         
-        # Clean the response
-        cleaned_answer, sources = clean_rag_response(raw_answer)
-        
-        # Get stats
-        stats = prediction.get("stats", {})
-        
-        logger.info(f"✓ RAG response: {len(cleaned_answer)} chars, {len(sources)} sources")
+        logger.info(f"RAG response: {len(cleaned_answer)} chars, {len(sources)} sources")
         
         return ChatResponse(
             response=cleaned_answer,
             sources=sources,
             stats={
-                "confidence": stats.get("avg_retrieval_score"),
-                "num_docs": stats.get("num_retrieved_docs")
-            } if stats else None
+                "confidence": prediction.get("stats", {}).get("avg_retrieval_score"),
+                "num_docs": prediction.get("stats", {}).get("num_retrieved_docs")
+            }
         )
         
     except HTTPException:
         raise
-    except httpx.TimeoutException as e:
-        logger.error(f"RAG endpoint timeout: {e}")
-        raise HTTPException(
-            status_code=504,
-            detail="The AI assistant is taking too long. Please try again."
-        )
     except Exception as e:
         logger.error(f"RAG chat error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to get response from AI assistant."
-        )
-
-
-def clean_rag_response(raw_answer: str) -> tuple[str, List[Dict[str, str]]]:
-    """
-    Clean RAG response:
-    1. Remove "References:" section
-    2. Remove "Important:" disclaimer
-    3. Remove "Limitation:" section
-    4. Extract sources from markdown links
-    
-    Returns:
-        (cleaned_answer, sources_list)
-    """
-    # Step 1: Remove "References:" section and everything after it
-    if "References:" in raw_answer or "**References:**" in raw_answer:
-        answer = re.split(r'\*\*References:\*\*|References:', raw_answer)[0].strip()
-    else:
-        answer = raw_answer
-    
-    # Step 2: Remove "Important:" disclaimer
-    if "Important:" in answer or "**Important:**" in answer:
-        answer = re.split(r'\*\*Important:\*\*|Important:', answer)[0].strip()
-    
-    # Step 3: Remove "Limitation:" section
-    if "Limitation:" in answer or "**Limitation:**" in answer:
-        answer = re.split(r'\*\*Limitation:\*\*|Limitation:', answer)[0].strip()
-    
-    # Step 4: Remove trailing "---" markers
-    answer = re.sub(r'\n*---\n*$', '', answer).strip()
-    
-    # Step 5: Extract sources from markdown links in the ORIGINAL answer
-    # Format: [Title](URL)
-    sources = []
-    markdown_links = re.findall(r'\[([^\]]+)\]\(([^)]+)\)', raw_answer)
-    
-    seen_urls = set()
-    for title, url in markdown_links:
-        # Only include actual URLs (start with http)
-        if url.startswith('http') and url not in seen_urls:
-            # Clean title (remove underscores, numbers)
-            clean_title = title.strip().replace('__', '').strip()
-            clean_title = re.sub(r'^\d+\.\s*', '', clean_title)  # Remove leading numbers
-            
-            sources.append({
-                "title": clean_title,
-                "url": url.strip()
-            })
-            seen_urls.add(url)
-    
-    # Limit to 5 sources
-    return answer, sources[:5]
+        raise HTTPException(status_code=500, detail="Failed to get response from AI assistant")
 
 
 @router.get("/health")
 async def check_rag_health():
     """Check if RAG endpoint is accessible."""
     try:
-        # Use shorter timeout for health check
-        timeout_config = httpx.Timeout(300.0)
+        timeout_config = httpx.Timeout(10.0)
         
         async with httpx.AsyncClient(timeout=timeout_config) as client:
-            test_request = {
-                "instances": [{"query": "test"}]
-            }
+            test_request = {"instances": [{"query": "test"}]}
             
             response = await client.post(
                 settings.RAG_ENDPOINT_URL,
@@ -252,40 +409,11 @@ async def check_rag_health():
             
             is_healthy = response.status_code == 200
             
-            if is_healthy:
-                result = response.json()
-                # Some RAG endpoints don't return "success" field
-                success = result.get("predictions", [{}])[0].get("success", True)
-            else:
-                success = False
-            
             return {
-                "status": "healthy" if (is_healthy and success) else "unhealthy",
+                "status": "healthy" if is_healthy else "unhealthy",
                 "endpoint": settings.RAG_ENDPOINT_URL,
-                "status_code": response.status_code,
-                "rag_success": success
+                "status_code": response.status_code
             }
-    except httpx.TimeoutException:
-        logger.error("RAG health check timeout")
-        return {
-            "status": "unhealthy",
-            "endpoint": settings.RAG_ENDPOINT_URL,
-            "error": "Timeout - service may be cold starting"
-        }
-    except httpx.ConnectError as e:
-        logger.error(f"RAG health check connection error: {e}")
-        return {
-            "status": "unhealthy",
-            "endpoint": settings.RAG_ENDPOINT_URL,
-            "error": f"Connection error: {str(e)}"
-        }
-    except httpx.NetworkError as e:
-        logger.error(f"RAG health check network error: {e}")
-        return {
-            "status": "unhealthy",
-            "endpoint": settings.RAG_ENDPOINT_URL,
-            "error": f"Network error: {str(e)}"
-        }
     except Exception as e:
         logger.error(f"RAG health check failed: {e}")
         return {
