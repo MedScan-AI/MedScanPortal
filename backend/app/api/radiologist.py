@@ -1,6 +1,7 @@
 """
 Radiologist API Routes
 """
+from app.core.config import settings
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -22,6 +23,9 @@ from app.schemas.schemas import (
     FeedbackCreate,
     FeedbackResponse
 )
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Import report generation helper
 from app.services.report_templates import (
@@ -723,6 +727,9 @@ async def submit_feedback(
             )
         except ImportError:
             logger.warning("MLOps sync not available")
+
+        if feedback.feedback_type in ['partial_override', 'full_override']:
+            check_and_alert_disagreement_threshold(db)
         
         return FeedbackResponse(
             id=feedback_record.id,
@@ -896,3 +903,68 @@ async def get_radiologist_profile(
         "years_of_experience": radiologist_profile.years_of_experience,
         "institution": radiologist_profile.institution,
     }
+
+def check_and_alert_disagreement_threshold(db: Session):
+    """Check threshold and send email if exceeded."""
+    THRESHOLD = 2  # or from settings
+    WINDOW_HOURS = 24
+    
+    # Count overrides
+    result = db.execute(text("""
+        SELECT COUNT(*) FROM radiologist_feedback
+        WHERE feedback_type IN ('partial_override', 'full_override')
+          AND feedback_timestamp >= NOW() - INTERVAL :hours
+    """), {"hours": f"{WINDOW_HOURS} hours"})
+    
+    count = result.scalar()
+    
+    if count >= THRESHOLD:
+        send_disagreement_alert_email(count, WINDOW_HOURS, db)
+
+
+def send_disagreement_alert_email(count, hours, db):
+    """Send email using existing SMTP config."""
+    msg = MIMEText(f"""
+AI Model Performance Alert - Radiologist Disagreement Threshold Exceeded
+--------------------------------------------------------------------------                   
+Details:
+-------                   
+        Service: MedScan AI Web Platform
+        Time Period: Last {hours} hours
+        AI Overrides: {count}
+        Threshold: {settings.DISAGREEMENT_THRESHOLD}
+        Status: ⚠️  THRESHOLD EXCEEDED
+        -------------------------------------------------
+        Summary: {count} overrides in {hours} hours
+
+Next Steps:
+-----------
+1. Review recent predictions in Cloud Logging:
+  https://console.cloud.google.com/logs/query;query=resource.type%3D%22cloud_run_revision%22%0Aresource.labels.service_name%3D%22vision-inference-api%22%0AtextPayload%3A%22%5Blow_confidence%5D%22?project=medscanai-476500
+
+2. Check the monitoring dashboard:
+  https://console.cloud.google.com/monitoring/dashboards?project=medscanai-476500
+
+3. Consider retraining the vision models:
+  • TB Detection Model
+  • Lung Cancer Detection Model
+
+4. Trigger retraining workflow (if available):
+  https://github.com/MedScan-AI/MedScan_ai/actions/workflows/vision-training.yaml
+
+Time: 2025-12-12T04:12:12Z
+Workflow Run: https://github.com/MedScan-AI/MedScan_ai/actions/runs/20156047678
+
+---
+This is an automated notification from MedScan AI Vision Inference Monitoring.                
+        
+        """)
+    
+    msg['Subject'] = f'⚠️ AI Model Performance Alert - High Disagreement Rate Detected'
+    msg['From'] = settings.SMTP_USER
+    msg['To'] = ', '.join(settings.ALERT_EMAIL_RECIPIENTS)
+    
+    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+        server.starttls()
+        server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+        server.send_message(msg)

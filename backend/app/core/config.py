@@ -40,8 +40,8 @@ class Settings(BaseSettings):
     # Email Alerts
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
-    SMTP_USER: str = ""
-    SMTP_PASSWORD: str = ""
+    SMTP_USER: str = None
+    SMTP_PASSWORD: str = None
     ALERT_EMAIL_RECIPIENTS: List[str] = []
 
     # RAG Model
@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     # ML Model Endpoints (GCP Cloud Run)
     TB_MODEL_ENDPOINT: str = None
     LUNG_CANCER_MODEL_ENDPOINT: str = None
+
+    DISAGREEMENT_THRESHOLD: int=5
+    DISAGREEMENT_WINDOW_HOURS: int=24
+
     class Config:
         env_file = ".env"
         case_sensitive = True
